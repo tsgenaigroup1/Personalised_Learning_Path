@@ -1,6 +1,6 @@
 """Employee Assessment Form (Gradio) -> n8n webhook -> verified, personalized learning plan.
 Install:  pip install gradio requests pypdf
-Run:      N8N_WEBHOOK_URL=https://<your-n8n>/webhook/employee-assessment python assessment_app.py
+Run:      N8N_WEBHOOK_URL=https://super-fortnight-6v5wjw79p5q4hprr-5678.app.github.dev/webhook/employee-assessment python assessment_app.py
 Context files are read from the folder of this script (override with PROPOSAL_PDF / EMPLOYEE_CSV / CONTENT_CSV)."""
 import os, datetime, requests, gradio as gr
 from pathlib import Path
