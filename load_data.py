@@ -6,7 +6,7 @@ Optional content_library.csv/.xlsx: skill,topic,url,difficulty,duration_hours,fo
 import os, sys, pandas as pd, psycopg2
 from psycopg2.extras import execute_values
 
-EMP_FILE = sys.argv[1] if len(sys.argv) > 1 else "employee_data_200_december_2025.csv"
+EMP_FILE = sys.argv[1] if len(sys.argv) > 1 else "employee_data.csv"
 
 def load_employees(path):
     df = pd.read_csv(path, encoding="utf-8-sig", dtype=str).fillna("")
