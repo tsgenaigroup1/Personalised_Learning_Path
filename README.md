@@ -1,2 +1,4 @@
 # Personalised_Learning_Path
 Personalised_Learning_Path
+
+API_KEY=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
