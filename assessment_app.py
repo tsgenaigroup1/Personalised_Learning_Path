@@ -37,10 +37,10 @@ TIMEOUT = 240
 STYLES = ["Visual (videos, infographics)", "Hands-on (labs, projects)", "Reading (articles, docs, books)",
           "Auditory / Live (podcasts, live sessions)", "Mixed"]
 PROFICIENCY = ["None", "Beginner", "Intermediate", "Advanced"]
-BADGES = [("bronze", "ðŸ¥‰", "Bronze", 25), ("silver", "ðŸ¥ˆ", "Silver", 50), ("gold", "ðŸ¥‡", "Gold", 75), ("certificate", "ðŸŽ“", "Certificate", 100)]
-FORMAT_ICON = {"video": "ðŸŽ¬", "infographic": "ðŸ–¼ï¸", "hands-on lab": "ðŸ§ª", "lab": "ðŸ§ª", "project": "ðŸ› ï¸", "article": "ðŸ“°",
-               "documentation": "ðŸ“˜", "book": "ðŸ“š", "podcast": "ðŸŽ§", "live session": "ðŸŽ¤", "course": "ðŸŽ“"}
-RATINGS = ["1 ðŸ˜£ Not working", "2 ðŸ™ Hard going", "3 ðŸ˜ OK", "4 ðŸ™‚ Good", "5 ðŸ¤© Great"]
+BADGES = [("bronze", "🥉", "Bronze", 25), ("silver", "🥈", "Silver", 50), ("gold", "🥇", "Gold", 75), ("certificate", "🎓", "Certificate", 100)]
+FORMAT_ICON = {"video": "🎬", "infographic": "🖼️", "hands-on lab": "🧪", "lab": "🧪", "project": "🛠️", "article": "📰",
+               "documentation": "📘", "book": "📚", "podcast": "🎧", "live session": "🎤", "course": "🎓"}
+RATINGS = ["1 😣 Not working", "2 🙁 Hard going", "3 😐 OK", "4 🙂 Good", "5 🤩 Great"]
 
 
 # ------------------------------------------------------------------ context loading
@@ -110,7 +110,7 @@ E = lambda x: html.escape(str(x if x is not None else ""))
 
 
 def banner(kind: str, text: str) -> str:
-    icon = {"ok": "âœ…", "warn": "âš ï¸", "err": "âŒ", "info": "â„¹ï¸", "party": "ðŸŽ‰"}[kind]
+    icon = {"ok": "✅", "warn": "⚠️", "err": "❌", "info": "ℹ️", "party": "🎉"}[kind]
     return f'<div class="sp-banner sp-{kind}"><span>{icon}</span><div>{text}</div></div>'
 
 
@@ -118,14 +118,14 @@ def _week_label(i: dict) -> str:
     w, e = int(i.get("week_no") or 0), int(i.get("end_week") or i.get("week_no") or 0)
     if w == 0:
         return "Completed earlier"
-    return f"Weeks {w}â€“{e}" if e > w else f"Week {w}"
+    return f"Weeks {w}–{e}" if e > w else f"Week {w}"
 
 
 def render_badges(badges: dict, pct: float = 0) -> str:
     cells = []
     for key, emoji, label, at in BADGES:
         on = bool((badges or {}).get(key))
-        cells.append(f'<div class="sp-badge {"on" if on else "off"}"><div class="sp-badge-em">{emoji if on else "ðŸ”’"}</div>'
+        cells.append(f'<div class="sp-badge {"on" if on else "off"}"><div class="sp-badge-em">{emoji if on else "🔒"}</div>'
                      f'<div class="sp-badge-l">{label}</div><div class="sp-badge-at">{at}%</div></div>')
     return '<div class="sp-badges">' + "".join(cells) + "</div>"
 
@@ -137,7 +137,7 @@ def render_progress(data: dict) -> str:
     pct = float(p.get("progress_pct") or 0)
     exp = float(p.get("expected_pct") or 0)
     marks = "".join(f'<span class="sp-mark" style="left:{at}%"><i></i>{emoji}</span>' for _, emoji, _, at in BADGES[:3])
-    track = ("âœ… On track" if p.get("on_track") else f"â° Behind plan (expected {exp:.0f}%)") if p.get("status") == "active" else "ðŸŽ“ Completed"
+    track = ("✅ On track" if p.get("on_track") else f"⏰ Behind plan (expected {exp:.0f}%)") if p.get("status") == "active" else "🎓 Completed"
     stats = [("Progress", f"{pct:.0f}%"), ("Items", f'{p.get("items_completed")}/{p.get("items_total")}'),
              ("Hours", f'{p.get("completed_hours")}/{p.get("total_hours")}'), ("Week", f'{p.get("current_week")} / 13')]
     stat_html = "".join(f'<div class="sp-stat"><div class="v">{E(v)}</div><div class="k">{E(k)}</div></div>' for k, v in stats)
@@ -163,16 +163,16 @@ def render_plan(data: dict, title: str = "Your 90-day learning path") -> str:
     for label, items in weeks.items():
         rows = []
         for i in items:
-            icon = FORMAT_ICON.get(str(i.get("format", "")).lower(), "ðŸ“„")
+            icon = FORMAT_ICON.get(str(i.get("format", "")).lower(), "📄")
             done = i.get("done") or i.get("status") == "completed"
             url = E(i.get("url"))
             chips = "".join(f'<span class="chip{cls}">{E(pre)}{E(i.get(k))}{E(suf)}</span>'
                             for k, cls, pre, suf in (("content_id", "", "", ""), ("skill", "", "", ""), ("level", " lvl", "", ""),
-                                                     ("format", "", "", ""), ("hours", "", "â± ", " h"), ("provider", "", "", ""),
+                                                     ("format", "", "", ""), ("hours", "", "⏱ ", " h"), ("provider", "", "", ""),
                                                      ("cost", "", "", "")) if i.get(k) not in (None, ""))
             rows.append(f"""
 <div class="sp-item {'done' if done else ''}">
-  <div class="sp-item-ic">{'âœ…' if done else icon}</div>
+  <div class="sp-item-ic">{'✅' if done else icon}</div>
   <div class="sp-item-main"><a href="{url}" target="_blank" rel="noopener">{E(i.get('topic'))}</a>
     <div class="sp-chips">{chips}</div>
     {f'<div class="sp-why">{E(i.get("rationale"))}</div>' if i.get('rationale') else ''}</div></div>""")
@@ -182,14 +182,14 @@ def render_plan(data: dict, title: str = "Your 90-day learning path") -> str:
                    ("coverage_note", "Coverage note")):
         if p.get(k):
             extra += f'<div class="sp-note"><b>{lbl}:</b> {E(p[k])}</div>'
-    meta = f'{E(p.get("experience_band") or "")} Â· {E(p.get("learning_style") or "")} Â· ~{E(p.get("weekly_hours") or "")} h/week Â· v{E(p.get("version"))}'
+    meta = f'{E(p.get("experience_band") or "")} · {E(p.get("learning_style") or "")} · ~{E(p.get("weekly_hours") or "")} h/week · v{E(p.get("version"))}'
     return f"""<div class="sp-card"><div class="sp-h2">{E(title)}</div><div class="sp-muted">{meta}</div>
 <p>{E(p.get('summary'))}</p>{extra}<div class="sp-weeks">{''.join(blocks)}</div></div>"""
 
 
 def render_certificate(cert: dict | None) -> str:
     if not cert:
-        return banner("info", "Complete 100% of your learning path to unlock your certificate. ðŸŽ“")
+        return banner("info", "Complete 100% of your learning path to unlock your certificate. 🎓")
     date = str(cert.get("awarded_at") or dt.date.today().isoformat())[:10]
     return f"""
 <div class="sp-cert"><div class="sp-cert-in">
@@ -197,8 +197,8 @@ def render_certificate(cert: dict | None) -> str:
   <div class="sp-cert-name">{E(cert.get('employee_name'))}</div>
   <div class="sp-cert-sub">has successfully completed the 90-day personalised learning path in</div>
   <div class="sp-cert-skill">{E(cert.get('target_skill'))}</div>
-  <div class="sp-cert-meta">{E(cert.get('items'))} learning items Â· {E(cert.get('total_hours'))} hours Â· issued {E(date)}</div>
-  <div class="sp-cert-badges">ðŸ¥‰ ðŸ¥ˆ ðŸ¥‡ ðŸŽ“</div><div class="sp-cert-id">Certificate ID: {E(cert.get('cert_id'))}</div>
+  <div class="sp-cert-meta">{E(cert.get('items'))} learning items · {E(cert.get('total_hours'))} hours · issued {E(date)}</div>
+  <div class="sp-cert-badges">🥉 🥈 🥇 🎓</div><div class="sp-cert-id">Certificate ID: {E(cert.get('cert_id'))}</div>
 </div></div>"""
 
 
@@ -225,7 +225,7 @@ def certificate_pdf(cert: dict) -> str | None:
         (str(cert.get("employee_name", "")), "Helvetica-Bold", 34, navy, 44),
         ("has successfully completed the 90-day personalised learning path in", "Helvetica", 14, colors.grey, 40),
         (str(cert.get("target_skill", "")), "Helvetica-Bold", 24, gold, 44),
-        (f"{cert.get('items', '')} learning items  Â·  {cert.get('total_hours', '')} hours  Â·  Bronze Â· Silver Â· Gold milestones achieved",
+        (f"{cert.get('items', '')} learning items  ·  {cert.get('total_hours', '')} hours  ·  Bronze · Silver · Gold milestones achieved",
          "Helvetica", 11, colors.grey, 30)]:
         c.setFont(font, size); c.setFillColor(col); c.drawCentredString(w / 2, y, text); y -= gap
     c.setFont("Helvetica", 10); c.setFillColor(colors.grey)
@@ -240,7 +240,7 @@ def _checklist_update(data: dict):
     if not data or not data.get("has_path"):
         return gr.update(choices=[], value=[], interactive=False)
     items = data["path"].get("items", [])
-    choices = [(f"{i['content_id']} Â· {_week_label(i)} Â· {i.get('topic')} ({i.get('hours')} h)", i["content_id"]) for i in items]
+    choices = [(f"{i['content_id']} · {_week_label(i)} · {i.get('topic')} ({i.get('hours')} h)", i["content_id"]) for i in items]
     value = [i["content_id"] for i in items if i.get("done") or i.get("status") == "completed"]
     return gr.update(choices=choices, value=value, interactive=data["path"].get("status") == "active")
 
@@ -328,8 +328,8 @@ def verify_cert(cert_id):
     if res.get("status") != "valid":
         return banner("err", E(res.get("message", "Not found")))
     c = res["certificate"]
-    return banner("ok", f"Valid certificate for <b>{E(c.get('employee_name'))}</b> ({E(c.get('employee_id'))}) Â· "
-                        f"{E(c.get('target_skill'))} Â· issued {E(str(c.get('awarded_at'))[:10])}")
+    return banner("ok", f"Valid certificate for <b>{E(c.get('employee_name'))}</b> ({E(c.get('employee_id'))}) · "
+                        f"{E(c.get('target_skill'))} · issued {E(str(c.get('awarded_at'))[:10])}")
 
 
 def sync_library(admin_key):
@@ -386,29 +386,29 @@ CSS = """
 @media (max-width:700px){.sp-stats,.sp-badges{grid-template-columns:repeat(2,1fr)}}
 """
 
-HERO = """<div class="sp-hero"><h1>ðŸ§­ SkillPath Â· Personalised Learning</h1>
+HERO = """<div class="sp-hero"><h1>🧭 SkillPath · Personalised Learning</h1>
 <p>Answer a short assessment, get a 90-day plan built from our content library, track progress and earn badges.</p>
-<div class="sp-steps"><span>1 Â· Assess</span><span>2 Â· Get your plan</span><span>3 Â· Learn & tick off</span>
-<span>ðŸ¥‰ 25% Â· ðŸ¥ˆ 50% Â· ðŸ¥‡ 75% Â· ðŸŽ“ 100%</span><span>ðŸ’¬ Slack: /learn status</span></div></div>"""
+<div class="sp-steps"><span>1 · Assess</span><span>2 · Get your plan</span><span>3 · Learn & tick off</span>
+<span>🥉 25% · 🥈 50% · 🥇 75% · 🎓 100%</span><span>💬 Slack: /learn status</span></div></div>"""
 
 
 def build_ui():
     theme = gr.themes.Soft(primary_hue="indigo", secondary_hue="amber", neutral_hue="slate", radius_size="lg")
     gr_major = int(gr.__version__.split(".")[0])
     blocks_kw = {} if gr_major >= 6 else {"theme": theme, "css": CSS}
-    with gr.Blocks(title="SkillPath Â· Learning Path Generator", **blocks_kw) as demo:
+    with gr.Blocks(title="SkillPath · Learning Path Generator", **blocks_kw) as demo:
         gr.HTML(HERO)
         dash_state = gr.State({})
         with gr.Group():
             with gr.Row(equal_height=True):
                 emp_id = gr.Textbox(label="Employee ID", placeholder="EMP0001", scale=2)
                 emp_name = gr.Textbox(label="Employee Name", placeholder="Exactly as in HR records", scale=3)
-                load_btn = gr.Button("ðŸ”„ Load my dashboard", variant="secondary", scale=1)
+                load_btn = gr.Button("🔄 Load my dashboard", variant="secondary", scale=1)
         top_note = gr.HTML()
 
         with gr.Tabs():
             # ---------------------------------------------------------- assessment
-            with gr.Tab("ðŸ§­ New Assessment"):
+            with gr.Tab("🧭 New Assessment"):
                 gr.Markdown("Tell us where you are and where you want to go. Your **experience, manager input and performance "
                             "rating** from HR records are combined with these answers to tailor the pace and level.")
                 with gr.Row():
@@ -419,42 +419,42 @@ def build_ui():
                     style = gr.Dropdown(STYLES, value=STYLES[1], label="Preferred learning style", scale=2)
                     hours = gr.Slider(2, 12, value=4, step=1, label="Hours per week", scale=1)
                 career_goal = gr.Textbox(label="Career goal", lines=2, placeholder="e.g. Move into an ML engineering lead role")
-                with gr.Accordion("ðŸ”” Slack notifications (optional)", open=False):
-                    slack_id = gr.Textbox(label="Slack member ID", placeholder="U0123ABCD  (Slack profile â–¸ â‹® â–¸ Copy member ID)",
+                with gr.Accordion("🔔 Slack notifications (optional)", open=False):
+                    slack_id = gr.Textbox(label="Slack member ID", placeholder="U0123ABCD  (Slack profile ▸ ⋮ ▸ Copy member ID)",
                                           info="Or run /learn link <ID> <Name> in Slack. Enables weekly check-ins, badges and certificate in Slack.")
-                submit_btn = gr.Button("âœ¨ Generate my learning path", variant="primary", size="lg")
+                submit_btn = gr.Button("✨ Generate my learning path", variant="primary", size="lg")
                 assess_note = gr.HTML()
                 with gr.Group(visible=False, elem_classes="sp-decision") as decision_box:
                     gr.Markdown("### You already have a learning path in progress\nChoose what to do with it:")
                     existing_html = gr.HTML()
                     with gr.Row():
-                        keep_btn = gr.Button("ðŸ‘ Keep current path")
-                        update_btn = gr.Button("ðŸ” Update path (keep my progress & badges)", variant="primary")
-                        replace_btn = gr.Button("ðŸ†• Start a fresh path")
+                        keep_btn = gr.Button("👍 Keep current path")
+                        update_btn = gr.Button("🔁 Update path (keep my progress & badges)", variant="primary")
+                        replace_btn = gr.Button("🆕 Start a fresh path")
                 plan_html = gr.HTML()
 
             # ---------------------------------------------------------- progress
-            with gr.Tab("ðŸ“ˆ My Progress"):
+            with gr.Tab("📈 My Progress"):
                 progress_html = gr.HTML(render_progress({}))
                 with gr.Row():
                     with gr.Column(scale=2):
                         checklist = gr.CheckboxGroup(label="Tick what you have finished", choices=[], interactive=False)
-                        save_btn = gr.Button("ðŸ’¾ Save progress", variant="primary")
+                        save_btn = gr.Button("💾 Save progress", variant="primary")
                     with gr.Column(scale=3):
                         my_plan_html = gr.HTML()
 
             # ---------------------------------------------------------- achievements
-            with gr.Tab("ðŸ† Achievements"):
+            with gr.Tab("🏆 Achievements"):
                 cert_html = gr.HTML(render_certificate(None))
                 cert_file = gr.File(label="Download certificate (PDF)", visible=False, interactive=False)
-                with gr.Accordion("ðŸ”Ž Verify a certificate", open=False):
+                with gr.Accordion("🔎 Verify a certificate", open=False):
                     with gr.Row():
-                        cert_id = gr.Textbox(label="Certificate ID", placeholder="CERT-EMP0001-12-â€¦", scale=4)
+                        cert_id = gr.Textbox(label="Certificate ID", placeholder="CERT-EMP0001-12-…", scale=4)
                         verify_btn = gr.Button("Verify", scale=1)
                     verify_out = gr.HTML()
 
             # ---------------------------------------------------------- feedback
-            with gr.Tab("ðŸ’¬ Feedback"):
+            with gr.Tab("💬 Feedback"):
                 gr.Markdown("How is your learning path going? Feedback is stored with your profile and used the next time "
                             "your path is updated (e.g. slower pace, more hands-on).")
                 rating = gr.Radio(RATINGS, value=RATINGS[3], label="Overall")
@@ -463,12 +463,12 @@ def build_ui():
                 fb_note = gr.HTML()
 
             # ---------------------------------------------------------- admin
-            with gr.Tab("âš™ï¸ Admin"):
+            with gr.Tab("⚙️ Admin"):
                 gr.Markdown(f"**n8n webhook:** `{WEBHOOK_URL}`  \n**Content library:** `{CONTENT}`  \n"
                             "Sync embeds every content item into Pinecone (namespace `content-library`) so assessments use RAG retrieval. "
                             "Run it once and again whenever the CSV changes.")
                 admin_key = gr.Textbox(label="Admin key", type="password", value=ADMIN_KEY)
-                sync_btn = gr.Button("â¬†ï¸ Sync content library to Pinecone")
+                sync_btn = gr.Button("⬆️ Sync content library to Pinecone")
                 sync_note = gr.HTML()
 
         # ---------------------------------------------------------- wiring
@@ -484,7 +484,7 @@ def build_ui():
             out[0] = gr.update()  # keep the top banner as is
             return out
 
-        submit_btn.click(lambda: banner("info", "â³ Verifying and building your plan (this can take up to a minute)â€¦"),
+        submit_btn.click(lambda: banner("info", "⏳ Verifying and building your plan (this can take up to a minute)…"),
                          None, assess_note).then(run_assessment, form_inputs, assess_outputs) \
                   .then(refresh_quietly, [emp_id, emp_name], dash_outputs)
         def decider(decision):
@@ -493,7 +493,7 @@ def build_ui():
             return handler
 
         for btn, decision in ((keep_btn, "keep"), (update_btn, "update"), (replace_btn, "replace")):
-            btn.click(lambda: banner("info", "â³ Working on itâ€¦"), None, assess_note) \
+            btn.click(lambda: banner("info", "⏳ Working on it…"), None, assess_note) \
                .then(decider(decision), form_inputs, assess_outputs) \
                .then(refresh_quietly, [emp_id, emp_name], dash_outputs)
 
