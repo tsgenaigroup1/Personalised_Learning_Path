@@ -1,0 +1,201 @@
+﻿emp_id,emp_name,emp_dept,emp_role,manager_input,last_review_date,years_of_exp,current_domain,Rating
+EMP0001,Yamini Menon,Engineering,Software Engineer,build proficiency in event-driven architecture through a hands-on project.,26-Dec-2025,7.8,Cloud-Native Product Engineering,average
+EMP0002,Arjun Pillai,Engineering,Senior Software Engineer,build proficiency in microservices architecture through a hands-on project.,24-Dec-2025,15.9,Enterprise Application Modernization,exceed
+EMP0003,Kiran Singh,Engineering,Frontend Engineer,build proficiency in design systems engineering through a hands-on project.,28-Dec-2025,18.3,Digital Experience Platforms,exceed
+EMP0004,Kavya Iyer,Engineering,Backend Engineer,build proficiency in Apache Kafka through a hands-on project.,13-Dec-2025,3.3,API and Integration Services,need improvement
+EMP0005,Shreya Verma,Engineering,Full Stack Engineer,build proficiency in product analytics through a hands-on project.,10-Dec-2025,15.4,SaaS Product Development,average
+EMP0006,Riya Joshi,Quality Engineering,QA Engineer,build proficiency in AI-assisted testing through a hands-on project.,09-Dec-2025,17.5,Software Quality Assurance,average
+EMP0007,Lakshmi Agarwal,Cloud and DevOps,DevOps Engineer,build proficiency in site reliability engineering through a hands-on project.,03-Dec-2025,16.9,Cloud and Platform Engineering,average
+EMP0008,Charan Nair,Cloud and DevOps,Cloud Engineer,build proficiency in cloud networking through a hands-on project.,29-Dec-2025,7.2,Cloud Migration Services,average
+EMP0009,Sneha Desai,Data and AI,Data Engineer,build proficiency in Apache Spark optimization through a hands-on project.,20-Dec-2025,5.8,Enterprise Data Platforms,average
+EMP0010,Lakshmi Patel,Data and AI,Data Analyst,build proficiency in advanced SQL analytics through a hands-on project.,23-Dec-2025,9.6,Business Intelligence Solutions,exceed
+EMP0011,Nikhil Pillai,Data and AI,Data Scientist,build proficiency in MLOps engineering through a hands-on project.,16-Dec-2025,4.4,AI and Predictive Analytics,average
+EMP0012,Sanjay Menon,Data and AI,Machine Learning Engineer,build proficiency in LLMOps through a hands-on project.,20-Dec-2025,8.2,AI Product Engineering,need improvement
+EMP0013,Aditi Subramanian,Cybersecurity,Security Analyst,build proficiency in SIEM detection engineering through a hands-on project.,14-Dec-2025,13.2,Managed Security Services,average
+EMP0014,Dev Kumar,Cybersecurity,Security Engineer,build proficiency in container security through a hands-on project.,04-Dec-2025,7.3,Application and Infrastructure Security,need improvement
+EMP0015,Isha Joshi,Business Applications,ERP Consultant,build proficiency in business process mining through a hands-on project.,05-Dec-2025,15.1,Enterprise Resource Planning,average
+EMP0016,Manish Das,Business Applications,CRM Consultant,build proficiency in CRM analytics through a hands-on project.,01-Dec-2025,17.7,Customer Experience Solutions,need improvement
+EMP0017,Varun Reddy,Business Analysis,Business Analyst,build proficiency in business process modeling through a hands-on project.,05-Dec-2025,13.7,Digital Transformation Consulting,average
+EMP0018,Vikram Nair,Product Management,Product Manager,build proficiency in platform product management through a hands-on project.,08-Dec-2025,14.3,B2B Software Products,average
+EMP0019,Dev Mishra,Project Management,Project Manager,build proficiency in risk management analytics through a hands-on project.,28-Dec-2025,18.3,IT Delivery and Transformation,need improvement
+EMP0020,Divya Bose,Architecture,Solution Architect,build proficiency in integration architecture through a hands-on project.,01-Dec-2025,3.6,Enterprise IT Solutions,exceed
+EMP0021,Sanjay Rao,IT Operations,Systems Administrator,build proficiency in identity governance through a hands-on project.,26-Dec-2025,2.7,Managed Infrastructure Services,average
+EMP0022,Sanjay Joshi,IT Operations,Network Engineer,build proficiency in network automation through a hands-on project.,04-Dec-2025,2.7,Enterprise Network Services,average
+EMP0023,Kiran Yadav,Customer Success,Customer Success Manager,build proficiency in renewal risk management through a hands-on project.,15-Dec-2025,9.1,SaaS Customer Enablement,average
+EMP0024,Farhan Das,Technical Support,Technical Support Engineer,build proficiency in cloud troubleshooting through a hands-on project.,10-Dec-2025,8.6,Product and Platform Support,average
+EMP0025,Vikram Srinivasan,UX and Design,UX Designer,build proficiency in service design through a hands-on project.,22-Dec-2025,8.1,Digital Product Design,need improvement
+EMP0026,Vidya Subramanian,Sales Engineering,Pre-Sales Consultant,build proficiency in value engineering through a hands-on project.,06-Dec-2025,13.5,IT Solutions Consulting,average
+EMP0027,Pranav Bose,Enterprise Integration,Integration Engineer,build proficiency in event-driven integration through a hands-on project.,15-Dec-2025,13.4,Middleware and API Management,average
+EMP0028,Farhan Menon,Database Services,Database Administrator,build proficiency in high availability architecture through a hands-on project.,31-Dec-2025,16.7,Database and Data Management,average
+EMP0029,Bhavna Malhotra,Engineering,Software Engineer,build proficiency in event-driven architecture through a hands-on project.,20-Dec-2025,14.1,Cloud-Native Product Engineering,average
+EMP0030,Charan Das,Engineering,Senior Software Engineer,build proficiency in technical mentoring through a hands-on project.,05-Dec-2025,13.3,Enterprise Application Modernization,average
+EMP0031,Aditi Nair,Engineering,Frontend Engineer,build proficiency in React performance optimization through a hands-on project.,30-Dec-2025,4.0,Digital Experience Platforms,average
+EMP0032,Tanvi Kapoor,Engineering,Backend Engineer,build proficiency in database performance tuning through a hands-on project.,14-Dec-2025,10.9,API and Integration Services,average
+EMP0033,Aditi Yadav,Engineering,Full Stack Engineer,build proficiency in observability engineering through a hands-on project.,30-Dec-2025,2.8,SaaS Product Development,average
+EMP0034,Deepa Bose,Quality Engineering,QA Engineer,build proficiency in AI-assisted testing through a hands-on project.,23-Dec-2025,7.5,Software Quality Assurance,need improvement
+EMP0035,Deepa Bansal,Cloud and DevOps,DevOps Engineer,build proficiency in infrastructure as code with Terraform through a hands-on project.,22-Dec-2025,13.2,Cloud and Platform Engineering,need improvement
+EMP0036,Isha Das,Cloud and DevOps,Cloud Engineer,build proficiency in cloud networking through a hands-on project.,31-Dec-2025,11.8,Cloud Migration Services,average
+EMP0037,Pooja Agarwal,Data and AI,Data Engineer,build proficiency in lakehouse architecture through a hands-on project.,13-Dec-2025,11.6,Enterprise Data Platforms,average
+EMP0038,Pranav Srinivasan,Data and AI,Data Analyst,build proficiency in data storytelling through a hands-on project.,24-Dec-2025,11.3,Business Intelligence Solutions,average
+EMP0039,Priya Menon,Data and AI,Data Scientist,build proficiency in large language model applications through a hands-on project.,25-Dec-2025,6.3,AI and Predictive Analytics,exceed
+EMP0040,Pranav Mishra,Data and AI,Machine Learning Engineer,build proficiency in model monitoring through a hands-on project.,04-Dec-2025,12.6,AI Product Engineering,average
+EMP0041,Naveen Yadav,Cybersecurity,Security Analyst,build proficiency in threat hunting through a hands-on project.,02-Dec-2025,18.9,Managed Security Services,exceed
+EMP0042,Gauri Singh,Cybersecurity,Security Engineer,build proficiency in identity security through a hands-on project.,06-Dec-2025,13.5,Application and Infrastructure Security,average
+EMP0043,Kavya Pillai,Business Applications,ERP Consultant,build proficiency in solution architecture through a hands-on project.,12-Dec-2025,16.7,Enterprise Resource Planning,average
+EMP0044,Lakshmi Sharma,Business Applications,CRM Consultant,build proficiency in Dynamics 365 customization through a hands-on project.,03-Dec-2025,15.9,Customer Experience Solutions,average
+EMP0045,Vikram Mehta,Business Analysis,Business Analyst,build proficiency in Agile product ownership through a hands-on project.,14-Dec-2025,11.7,Digital Transformation Consulting,average
+EMP0046,Jai Sharma,Product Management,Product Manager,build proficiency in pricing and packaging through a hands-on project.,03-Dec-2025,14.6,B2B Software Products,average
+EMP0047,Meera Gupta,Project Management,Project Manager,build proficiency in stakeholder negotiation through a hands-on project.,06-Dec-2025,8.6,IT Delivery and Transformation,average
+EMP0048,Rohan Nair,Architecture,Solution Architect,build proficiency in GenAI solution design through a hands-on project.,24-Dec-2025,18.7,Enterprise IT Solutions,average
+EMP0049,Yamini Kumar,IT Operations,Systems Administrator,build proficiency in identity governance through a hands-on project.,02-Dec-2025,0.9,Managed Infrastructure Services,need improvement
+EMP0050,Rohan Sharma,IT Operations,Network Engineer,build proficiency in cloud networking through a hands-on project.,25-Dec-2025,17.3,Enterprise Network Services,need improvement
+EMP0051,Yamini Das,Customer Success,Customer Success Manager,build proficiency in technical account planning through a hands-on project.,14-Dec-2025,4.9,SaaS Customer Enablement,exceed
+EMP0052,Naveen Bansal,Technical Support,Technical Support Engineer,build proficiency in cloud troubleshooting through a hands-on project.,21-Dec-2025,14.5,Product and Platform Support,average
+EMP0053,Jai Mehta,UX and Design,UX Designer,build proficiency in design analytics through a hands-on project.,19-Dec-2025,4.3,Digital Product Design,need improvement
+EMP0054,Manish Pillai,Sales Engineering,Pre-Sales Consultant,build proficiency in AI solution demonstrations through a hands-on project.,23-Dec-2025,18.2,IT Solutions Consulting,need improvement
+EMP0055,Farhan Nair,Enterprise Integration,Integration Engineer,build proficiency in API management through a hands-on project.,30-Dec-2025,11.8,Middleware and API Management,average
+EMP0056,Tanvi Agarwal,Database Services,Database Administrator,build proficiency in cloud database migration through a hands-on project.,27-Dec-2025,10.5,Database and Data Management,average
+EMP0057,Shreya Khan,Engineering,Software Engineer,build proficiency in advanced system design through a hands-on project.,15-Dec-2025,8.8,Cloud-Native Product Engineering,exceed
+EMP0058,Sana Mishra,Engineering,Senior Software Engineer,build proficiency in domain-driven design through a hands-on project.,26-Dec-2025,8.9,Enterprise Application Modernization,average
+EMP0059,Nikhil Sharma,Engineering,Frontend Engineer,build proficiency in web accessibility through a hands-on project.,29-Dec-2025,3.4,Digital Experience Platforms,average
+EMP0060,Dev Bansal,Engineering,Backend Engineer,build proficiency in API security through a hands-on project.,19-Dec-2025,18.1,API and Integration Services,exceed
+EMP0061,Jai Kapoor,Engineering,Full Stack Engineer,build proficiency in end-to-end test automation through a hands-on project.,10-Dec-2025,15.6,SaaS Product Development,average
+EMP0062,Arjun Yadav,Quality Engineering,QA Engineer,build proficiency in performance testing through a hands-on project.,05-Dec-2025,9.6,Software Quality Assurance,average
+EMP0063,Divya Mehta,Cloud and DevOps,DevOps Engineer,build proficiency in FinOps fundamentals through a hands-on project.,16-Dec-2025,18.0,Cloud and Platform Engineering,average
+EMP0064,Vikram Gupta,Cloud and DevOps,Cloud Engineer,build proficiency in identity and access management through a hands-on project.,15-Dec-2025,9.9,Cloud Migration Services,average
+EMP0065,Nikhil Kulkarni,Data and AI,Data Engineer,build proficiency in streaming data engineering through a hands-on project.,23-Dec-2025,15.9,Enterprise Data Platforms,exceed
+EMP0066,Ananya Kumar,Data and AI,Data Analyst,build proficiency in statistics for business decisions through a hands-on project.,29-Dec-2025,4.7,Business Intelligence Solutions,average
+EMP0067,Siddharth Nair,Data and AI,Data Scientist,build proficiency in responsible AI through a hands-on project.,21-Dec-2025,12.8,AI and Predictive Analytics,average
+EMP0068,Aarav Pillai,Data and AI,Machine Learning Engineer,build proficiency in model deployment with Kubernetes through a hands-on project.,13-Dec-2025,0.5,AI Product Engineering,exceed
+EMP0069,Pooja Mehta,Cybersecurity,Security Analyst,build proficiency in threat hunting through a hands-on project.,22-Dec-2025,17.2,Managed Security Services,need improvement
+EMP0070,Neha Das,Cybersecurity,Security Engineer,build proficiency in Zero Trust architecture through a hands-on project.,28-Dec-2025,4.2,Application and Infrastructure Security,average
+EMP0071,Suresh Yadav,Business Applications,ERP Consultant,build proficiency in solution architecture through a hands-on project.,10-Dec-2025,13.6,Enterprise Resource Planning,exceed
+EMP0072,Isha Kulkarni,Business Applications,CRM Consultant,build proficiency in Power Platform development through a hands-on project.,28-Dec-2025,16.8,Customer Experience Solutions,need improvement
+EMP0073,Sneha Singh,Business Analysis,Business Analyst,build proficiency in product discovery through a hands-on project.,26-Dec-2025,2.2,Digital Transformation Consulting,need improvement
+EMP0074,Manish Shah,Product Management,Product Manager,build proficiency in pricing and packaging through a hands-on project.,04-Dec-2025,18.1,B2B Software Products,average
+EMP0075,Gauri Sharma,Project Management,Project Manager,build proficiency in Agile program management through a hands-on project.,09-Dec-2025,13.7,IT Delivery and Transformation,exceed
+EMP0076,Manish Menon,Architecture,Solution Architect,build proficiency in cloud security architecture through a hands-on project.,03-Dec-2025,14.6,Enterprise IT Solutions,exceed
+EMP0077,Pooja Bose,IT Operations,Systems Administrator,build proficiency in infrastructure observability through a hands-on project.,11-Dec-2025,3.7,Managed Infrastructure Services,need improvement
+EMP0078,Rohan Verma,IT Operations,Network Engineer,build proficiency in Zero Trust network access through a hands-on project.,01-Dec-2025,13.4,Enterprise Network Services,average
+EMP0079,Rohan Mishra,Customer Success,Customer Success Manager,build proficiency in value realization consulting through a hands-on project.,30-Dec-2025,14.4,SaaS Customer Enablement,exceed
+EMP0080,Naveen Nair,Technical Support,Technical Support Engineer,build proficiency in cloud troubleshooting through a hands-on project.,10-Dec-2025,3.9,Product and Platform Support,average
+EMP0081,Tanvi Das,UX and Design,UX Designer,build proficiency in service design through a hands-on project.,13-Dec-2025,18.8,Digital Product Design,average
+EMP0082,Deepa Kulkarni,Sales Engineering,Pre-Sales Consultant,build proficiency in value engineering through a hands-on project.,09-Dec-2025,17.8,IT Solutions Consulting,average
+EMP0083,Pranav Patel,Enterprise Integration,Integration Engineer,build proficiency in API management through a hands-on project.,25-Dec-2025,7.6,Middleware and API Management,average
+EMP0084,Farhan Singh,Database Services,Database Administrator,build proficiency in database automation through a hands-on project.,03-Dec-2025,19.4,Database and Data Management,exceed
+EMP0085,Pooja Nair,Engineering,Software Engineer,build proficiency in event-driven architecture through a hands-on project.,08-Dec-2025,15.0,Cloud-Native Product Engineering,need improvement
+EMP0086,Akash Kulkarni,Engineering,Senior Software Engineer,build proficiency in domain-driven design through a hands-on project.,01-Dec-2025,1.0,Enterprise Application Modernization,average
+EMP0087,Varun Khan,Engineering,Frontend Engineer,build proficiency in React performance optimization through a hands-on project.,11-Dec-2025,5.3,Digital Experience Platforms,exceed
+EMP0088,Priya Yadav,Engineering,Backend Engineer,build proficiency in Apache Kafka through a hands-on project.,13-Dec-2025,1.9,API and Integration Services,average
+EMP0089,Deepa Singh,Engineering,Full Stack Engineer,build proficiency in cloud solution architecture through a hands-on project.,17-Dec-2025,0.7,SaaS Product Development,average
+EMP0090,Vidya Nair,Quality Engineering,QA Engineer,build proficiency in performance testing through a hands-on project.,04-Dec-2025,5.9,Software Quality Assurance,average
+EMP0091,Gauri Mehta,Cloud and DevOps,DevOps Engineer,build proficiency in Kubernetes security through a hands-on project.,18-Dec-2025,19.3,Cloud and Platform Engineering,exceed
+EMP0092,Bhavna Iyer,Cloud and DevOps,Cloud Engineer,build proficiency in identity and access management through a hands-on project.,02-Dec-2025,3.0,Cloud Migration Services,exceed
+EMP0093,Rohan Patel,Data and AI,Data Engineer,build proficiency in data governance through a hands-on project.,08-Dec-2025,14.9,Enterprise Data Platforms,average
+EMP0094,Yamini Khan,Data and AI,Data Analyst,build proficiency in advanced SQL analytics through a hands-on project.,17-Dec-2025,3.5,Business Intelligence Solutions,exceed
+EMP0095,Sanjay Singh,Data and AI,Data Scientist,build proficiency in responsible AI through a hands-on project.,08-Dec-2025,6.5,AI and Predictive Analytics,average
+EMP0096,Naveen Sharma,Data and AI,Machine Learning Engineer,build proficiency in model monitoring through a hands-on project.,30-Dec-2025,14.9,AI Product Engineering,average
+EMP0097,Riya Iyer,Cybersecurity,Security Analyst,build proficiency in threat hunting through a hands-on project.,18-Dec-2025,19.3,Managed Security Services,average
+EMP0098,Naveen Jain,Cybersecurity,Security Engineer,build proficiency in DevSecOps through a hands-on project.,18-Dec-2025,19.0,Application and Infrastructure Security,average
+EMP0099,Sneha Subramanian,Business Applications,ERP Consultant,build proficiency in business process mining through a hands-on project.,03-Dec-2025,8.3,Enterprise Resource Planning,average
+EMP0100,Priya Srinivasan,Business Applications,CRM Consultant,build proficiency in CRM analytics through a hands-on project.,27-Dec-2025,8.7,Customer Experience Solutions,average
+EMP0101,Vikram Verma,Business Analysis,Business Analyst,build proficiency in Agile product ownership through a hands-on project.,27-Dec-2025,9.3,Digital Transformation Consulting,average
+EMP0102,Arjun Srinivasan,Product Management,Product Manager,build proficiency in pricing and packaging through a hands-on project.,23-Dec-2025,1.6,B2B Software Products,average
+EMP0103,Manish Subramanian,Project Management,Project Manager,build proficiency in Agile program management through a hands-on project.,30-Dec-2025,9.4,IT Delivery and Transformation,average
+EMP0104,Bhavna Kapoor,Architecture,Solution Architect,build proficiency in enterprise architecture through a hands-on project.,04-Dec-2025,11.6,Enterprise IT Solutions,exceed
+EMP0105,Shreya Menon,IT Operations,Systems Administrator,build proficiency in identity governance through a hands-on project.,18-Dec-2025,3.3,Managed Infrastructure Services,average
+EMP0106,Divya Nair,IT Operations,Network Engineer,build proficiency in Zero Trust network access through a hands-on project.,03-Dec-2025,1.7,Enterprise Network Services,average
+EMP0107,Ananya Joshi,Customer Success,Customer Success Manager,build proficiency in renewal risk management through a hands-on project.,27-Dec-2025,14.0,SaaS Customer Enablement,exceed
+EMP0108,Charan Menon,Technical Support,Technical Support Engineer,build proficiency in support automation with Python through a hands-on project.,21-Dec-2025,6.6,Product and Platform Support,exceed
+EMP0109,Ananya Bansal,UX and Design,UX Designer,build proficiency in service design through a hands-on project.,14-Dec-2025,2.4,Digital Product Design,average
+EMP0110,Yamini Mehta,Sales Engineering,Pre-Sales Consultant,build proficiency in technical discovery through a hands-on project.,18-Dec-2025,8.4,IT Solutions Consulting,need improvement
+EMP0111,Manish Kumar,Enterprise Integration,Integration Engineer,build proficiency in iPaaS architecture through a hands-on project.,19-Dec-2025,8.8,Middleware and API Management,need improvement
+EMP0112,Rahul Kumar,Database Services,Database Administrator,build proficiency in high availability architecture through a hands-on project.,15-Dec-2025,2.0,Database and Data Management,exceed
+EMP0113,Priya Malhotra,Engineering,Software Engineer,build proficiency in Kubernetes administration through a hands-on project.,08-Dec-2025,8.7,Cloud-Native Product Engineering,average
+EMP0114,Yamini Pillai,Engineering,Senior Software Engineer,build proficiency in technical mentoring through a hands-on project.,06-Dec-2025,8.5,Enterprise Application Modernization,need improvement
+EMP0115,Ananya Srinivasan,Engineering,Frontend Engineer,build proficiency in design systems engineering through a hands-on project.,08-Dec-2025,18.0,Digital Experience Platforms,average
+EMP0116,Naveen Srinivasan,Engineering,Backend Engineer,build proficiency in API security through a hands-on project.,22-Dec-2025,5.1,API and Integration Services,average
+EMP0117,Jai Srinivasan,Engineering,Full Stack Engineer,build proficiency in product analytics through a hands-on project.,06-Dec-2025,12.9,SaaS Product Development,exceed
+EMP0118,Jai Yadav,Quality Engineering,QA Engineer,build proficiency in security testing fundamentals through a hands-on project.,01-Dec-2025,16.2,Software Quality Assurance,average
+EMP0119,Aditi Bose,Cloud and DevOps,DevOps Engineer,build proficiency in site reliability engineering through a hands-on project.,18-Dec-2025,1.9,Cloud and Platform Engineering,average
+EMP0120,Meera Mishra,Cloud and DevOps,Cloud Engineer,build proficiency in identity and access management through a hands-on project.,29-Dec-2025,5.1,Cloud Migration Services,average
+EMP0121,Pooja Shah,Data and AI,Data Engineer,build proficiency in streaming data engineering through a hands-on project.,16-Dec-2025,4.8,Enterprise Data Platforms,average
+EMP0122,Akash Iyer,Data and AI,Data Analyst,build proficiency in statistics for business decisions through a hands-on project.,28-Dec-2025,2.3,Business Intelligence Solutions,average
+EMP0123,Aditi Reddy,Data and AI,Data Scientist,build proficiency in MLOps engineering through a hands-on project.,26-Dec-2025,4.6,AI and Predictive Analytics,exceed
+EMP0124,Yamini Bose,Data and AI,Machine Learning Engineer,build proficiency in model deployment with Kubernetes through a hands-on project.,29-Dec-2025,11.6,AI Product Engineering,average
+EMP0125,Isha Sharma,Cybersecurity,Security Analyst,build proficiency in digital forensics through a hands-on project.,03-Dec-2025,18.9,Managed Security Services,average
+EMP0126,Charan Kulkarni,Cybersecurity,Security Engineer,build proficiency in Zero Trust architecture through a hands-on project.,18-Dec-2025,16.3,Application and Infrastructure Security,average
+EMP0127,Aditi Gupta,Business Applications,ERP Consultant,build proficiency in SAP S/4HANA integration through a hands-on project.,04-Dec-2025,19.7,Enterprise Resource Planning,average
+EMP0128,Pooja Desai,Business Applications,CRM Consultant,build proficiency in CRM analytics through a hands-on project.,04-Dec-2025,7.8,Customer Experience Solutions,average
+EMP0129,Charan Sharma,Business Analysis,Business Analyst,build proficiency in data-driven requirements analysis through a hands-on project.,01-Dec-2025,19.3,Digital Transformation Consulting,average
+EMP0130,Priya Bansal,Product Management,Product Manager,build proficiency in AI product strategy through a hands-on project.,28-Dec-2025,17.1,B2B Software Products,average
+EMP0131,Farhan Chatterjee,Project Management,Project Manager,build proficiency in stakeholder negotiation through a hands-on project.,14-Dec-2025,3.4,IT Delivery and Transformation,exceed
+EMP0132,Rahul Gupta,Architecture,Solution Architect,build proficiency in GenAI solution design through a hands-on project.,14-Dec-2025,16.7,Enterprise IT Solutions,average
+EMP0133,Priya Desai,IT Operations,Systems Administrator,build proficiency in identity governance through a hands-on project.,15-Dec-2025,16.1,Managed Infrastructure Services,average
+EMP0134,Divya Agarwal,IT Operations,Network Engineer,build proficiency in network automation through a hands-on project.,15-Dec-2025,8.9,Enterprise Network Services,average
+EMP0135,Sana Malhotra,Customer Success,Customer Success Manager,build proficiency in renewal risk management through a hands-on project.,13-Dec-2025,16.5,SaaS Customer Enablement,average
+EMP0136,Arjun Verma,Technical Support,Technical Support Engineer,build proficiency in support automation with Python through a hands-on project.,06-Dec-2025,14.9,Product and Platform Support,average
+EMP0137,Priya Agarwal,UX and Design,UX Designer,build proficiency in accessibility design through a hands-on project.,27-Dec-2025,11.6,Digital Product Design,average
+EMP0138,Sanjay Das,Sales Engineering,Pre-Sales Consultant,build proficiency in technical discovery through a hands-on project.,12-Dec-2025,2.9,IT Solutions Consulting,average
+EMP0139,Bhavna Srinivasan,Enterprise Integration,Integration Engineer,build proficiency in event-driven integration through a hands-on project.,31-Dec-2025,2.4,Middleware and API Management,need improvement
+EMP0140,Gauri Yadav,Database Services,Database Administrator,build proficiency in high availability architecture through a hands-on project.,25-Dec-2025,12.4,Database and Data Management,average
+EMP0141,Rohan Chatterjee,Engineering,Software Engineer,build proficiency in event-driven architecture through a hands-on project.,04-Dec-2025,0.9,Cloud-Native Product Engineering,exceed
+EMP0142,Isha Gupta,Engineering,Senior Software Engineer,build proficiency in cloud cost optimization through a hands-on project.,11-Dec-2025,4.0,Enterprise Application Modernization,exceed
+EMP0143,Bhavna Gupta,Engineering,Frontend Engineer,build proficiency in web accessibility through a hands-on project.,22-Dec-2025,10.1,Digital Experience Platforms,average
+EMP0144,Sana Patel,Engineering,Backend Engineer,build proficiency in Apache Kafka through a hands-on project.,30-Dec-2025,9.9,API and Integration Services,average
+EMP0145,Aditi Mehta,Engineering,Full Stack Engineer,build proficiency in end-to-end test automation through a hands-on project.,21-Dec-2025,4.6,SaaS Product Development,average
+EMP0146,Manish Chatterjee,Quality Engineering,QA Engineer,build proficiency in security testing fundamentals through a hands-on project.,06-Dec-2025,18.7,Software Quality Assurance,average
+EMP0147,Sanjay Desai,Cloud and DevOps,DevOps Engineer,build proficiency in Kubernetes security through a hands-on project.,17-Dec-2025,11.9,Cloud and Platform Engineering,need improvement
+EMP0148,Riya Pillai,Cloud and DevOps,Cloud Engineer,build proficiency in identity and access management through a hands-on project.,10-Dec-2025,4.1,Cloud Migration Services,exceed
+EMP0149,Gauri Chatterjee,Data and AI,Data Engineer,build proficiency in data governance through a hands-on project.,17-Dec-2025,3.2,Enterprise Data Platforms,average
+EMP0150,Varun Gupta,Data and AI,Data Analyst,build proficiency in data storytelling through a hands-on project.,25-Dec-2025,12.4,Business Intelligence Solutions,average
+EMP0151,Pranav Pillai,Data and AI,Data Scientist,build proficiency in responsible AI through a hands-on project.,20-Dec-2025,8.4,AI and Predictive Analytics,exceed
+EMP0152,Riya Chatterjee,Data and AI,Machine Learning Engineer,build proficiency in model deployment with Kubernetes through a hands-on project.,18-Dec-2025,7.7,AI Product Engineering,exceed
+EMP0153,Aarav Kapoor,Cybersecurity,Security Analyst,build proficiency in digital forensics through a hands-on project.,02-Dec-2025,5.4,Managed Security Services,exceed
+EMP0154,Farhan Iyer,Cybersecurity,Security Engineer,build proficiency in container security through a hands-on project.,25-Dec-2025,16.1,Application and Infrastructure Security,average
+EMP0155,Rahul Jain,Business Applications,ERP Consultant,build proficiency in solution architecture through a hands-on project.,20-Dec-2025,3.8,Enterprise Resource Planning,need improvement
+EMP0156,Priya Khan,Business Applications,CRM Consultant,build proficiency in Dynamics 365 customization through a hands-on project.,10-Dec-2025,1.7,Customer Experience Solutions,average
+EMP0157,Neha Shah,Business Analysis,Business Analyst,build proficiency in business process modeling through a hands-on project.,02-Dec-2025,19.0,Digital Transformation Consulting,average
+EMP0158,Pooja Kumar,Product Management,Product Manager,build proficiency in product analytics through a hands-on project.,06-Dec-2025,2.6,B2B Software Products,average
+EMP0159,Pooja Das,Project Management,Project Manager,build proficiency in cloud delivery governance through a hands-on project.,28-Dec-2025,12.3,IT Delivery and Transformation,exceed
+EMP0160,Isha Patel,Architecture,Solution Architect,build proficiency in integration architecture through a hands-on project.,24-Dec-2025,5.5,Enterprise IT Solutions,average
+EMP0161,Meera Mehta,IT Operations,Systems Administrator,build proficiency in PowerShell automation through a hands-on project.,25-Dec-2025,9.0,Managed Infrastructure Services,average
+EMP0162,Kavya Bansal,IT Operations,Network Engineer,build proficiency in software-defined networking through a hands-on project.,05-Dec-2025,2.9,Enterprise Network Services,exceed
+EMP0163,Ananya Kulkarni,Customer Success,Customer Success Manager,build proficiency in customer health analytics through a hands-on project.,21-Dec-2025,14.7,SaaS Customer Enablement,average
+EMP0164,Rohan Iyer,Technical Support,Technical Support Engineer,build proficiency in root cause analysis through a hands-on project.,18-Dec-2025,17.6,Product and Platform Support,need improvement
+EMP0165,Suresh Chatterjee,UX and Design,UX Designer,build proficiency in UX research methods through a hands-on project.,23-Dec-2025,15.9,Digital Product Design,average
+EMP0166,Rahul Kulkarni,Sales Engineering,Pre-Sales Consultant,build proficiency in AI solution demonstrations through a hands-on project.,28-Dec-2025,11.5,IT Solutions Consulting,average
+EMP0167,Aditi Jain,Enterprise Integration,Integration Engineer,build proficiency in integration security through a hands-on project.,24-Dec-2025,4.9,Middleware and API Management,average
+EMP0168,Neha Kumar,Database Services,Database Administrator,build proficiency in high availability architecture through a hands-on project.,22-Dec-2025,19.4,Database and Data Management,exceed
+EMP0169,Vidya Gupta,Engineering,Software Engineer,build proficiency in Kubernetes administration through a hands-on project.,21-Dec-2025,4.0,Cloud-Native Product Engineering,exceed
+EMP0170,Sneha Yadav,Engineering,Senior Software Engineer,build proficiency in domain-driven design through a hands-on project.,08-Dec-2025,4.3,Enterprise Application Modernization,need improvement
+EMP0171,Divya Subramanian,Engineering,Frontend Engineer,build proficiency in design systems engineering through a hands-on project.,17-Dec-2025,6.5,Digital Experience Platforms,need improvement
+EMP0172,Dev Malhotra,Engineering,Backend Engineer,build proficiency in database performance tuning through a hands-on project.,04-Dec-2025,13.6,API and Integration Services,average
+EMP0173,Sanjay Verma,Engineering,Full Stack Engineer,build proficiency in product analytics through a hands-on project.,27-Dec-2025,13.9,SaaS Product Development,average
+EMP0174,Vidya Malhotra,Quality Engineering,QA Engineer,build proficiency in AI-assisted testing through a hands-on project.,18-Dec-2025,4.2,Software Quality Assurance,average
+EMP0175,Vikram Mishra,Cloud and DevOps,DevOps Engineer,build proficiency in FinOps fundamentals through a hands-on project.,06-Dec-2025,11.6,Cloud and Platform Engineering,exceed
+EMP0176,Charan Pillai,Cloud and DevOps,Cloud Engineer,build proficiency in identity and access management through a hands-on project.,01-Dec-2025,8.1,Cloud Migration Services,exceed
+EMP0177,Divya Srinivasan,Data and AI,Data Engineer,build proficiency in lakehouse architecture through a hands-on project.,11-Dec-2025,3.2,Enterprise Data Platforms,average
+EMP0178,Kiran Malhotra,Data and AI,Data Analyst,build proficiency in Power BI data modeling through a hands-on project.,29-Dec-2025,11.5,Business Intelligence Solutions,average
+EMP0179,Priya Das,Data and AI,Data Scientist,build proficiency in responsible AI through a hands-on project.,22-Dec-2025,8.7,AI and Predictive Analytics,exceed
+EMP0180,Deepa Kumar,Data and AI,Machine Learning Engineer,build proficiency in model deployment with Kubernetes through a hands-on project.,18-Dec-2025,1.1,AI Product Engineering,average
+EMP0181,Gauri Pillai,Cybersecurity,Security Analyst,build proficiency in threat hunting through a hands-on project.,02-Dec-2025,9.3,Managed Security Services,exceed
+EMP0182,Harish Mehta,Cybersecurity,Security Engineer,build proficiency in container security through a hands-on project.,24-Dec-2025,10.0,Application and Infrastructure Security,exceed
+EMP0183,Arjun Kumar,Business Applications,ERP Consultant,build proficiency in solution architecture through a hands-on project.,18-Dec-2025,16.8,Enterprise Resource Planning,average
+EMP0184,Lakshmi Subramanian,Business Applications,CRM Consultant,build proficiency in customer journey orchestration through a hands-on project.,06-Dec-2025,6.3,Customer Experience Solutions,need improvement
+EMP0185,Kavya Kulkarni,Business Analysis,Business Analyst,build proficiency in product discovery through a hands-on project.,12-Dec-2025,12.0,Digital Transformation Consulting,exceed
+EMP0186,Priya Reddy,Product Management,Product Manager,build proficiency in pricing and packaging through a hands-on project.,20-Dec-2025,1.4,B2B Software Products,average
+EMP0187,Neha Bansal,Project Management,Project Manager,build proficiency in cloud delivery governance through a hands-on project.,03-Dec-2025,13.6,IT Delivery and Transformation,need improvement
+EMP0188,Divya Malhotra,Architecture,Solution Architect,build proficiency in cloud security architecture through a hands-on project.,11-Dec-2025,11.7,Enterprise IT Solutions,exceed
+EMP0189,Gauri Agarwal,IT Operations,Systems Administrator,build proficiency in infrastructure observability through a hands-on project.,04-Dec-2025,12.2,Managed Infrastructure Services,average
+EMP0190,Varun Jain,IT Operations,Network Engineer,build proficiency in network automation through a hands-on project.,07-Dec-2025,7.3,Enterprise Network Services,average
+EMP0191,Arjun Agarwal,Customer Success,Customer Success Manager,build proficiency in value realization consulting through a hands-on project.,02-Dec-2025,5.7,SaaS Customer Enablement,need improvement
+EMP0192,Divya Menon,Technical Support,Technical Support Engineer,build proficiency in cloud troubleshooting through a hands-on project.,21-Dec-2025,7.2,Product and Platform Support,average
+EMP0193,Akash Mehta,UX and Design,UX Designer,build proficiency in UX research methods through a hands-on project.,27-Dec-2025,15.9,Digital Product Design,average
+EMP0194,Shreya Nair,Sales Engineering,Pre-Sales Consultant,build proficiency in AI solution demonstrations through a hands-on project.,31-Dec-2025,11.0,IT Solutions Consulting,average
+EMP0195,Siddharth Pillai,Enterprise Integration,Integration Engineer,build proficiency in API management through a hands-on project.,31-Dec-2025,12.4,Middleware and API Management,average
+EMP0196,Sneha Agarwal,Database Services,Database Administrator,build proficiency in database automation through a hands-on project.,17-Dec-2025,12.9,Database and Data Management,exceed
+EMP0197,Shreya Joshi,Engineering,Software Engineer,build proficiency in event-driven architecture through a hands-on project.,16-Dec-2025,15.4,Cloud-Native Product Engineering,average
+EMP0198,Siddharth Bose,Engineering,Senior Software Engineer,build proficiency in technical mentoring through a hands-on project.,28-Dec-2025,15.9,Enterprise Application Modernization,need improvement
+EMP0199,Deepa Das,Engineering,Frontend Engineer,build proficiency in frontend test automation through a hands-on project.,19-Dec-2025,9.1,Digital Experience Platforms,average
+EMP0200,Meera Menon,Engineering,Backend Engineer,build proficiency in API security through a hands-on project.,27-Dec-2025,5.3,API and Integration Services,average
