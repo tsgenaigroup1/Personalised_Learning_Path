@@ -1,0 +1,2390 @@
+{
+  "name": "Employee Assessment - Learning Path (RAG + Slack + Gamification)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "employee-assessment",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        64,
+        1552
+      ],
+      "id": "014b5f64-56b3-4a6d-b392-8fad74dbabe3",
+      "webhookId": "employee-assessment"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ================= CONFIG: edit these values once =================\nconst CFG={\n  PINECONE_HOST:'https://content-library-bi3yxmd.svc.aped-4627-b74a.pinecone.io', // Pinecone console > index > HOST (dimension 1536, cosine)\n  NS_CONTENT:'content-library',      // namespace for the tagged content library\n  NS_EMPLOYEE:'employee-learning',   // namespace for assessments, learning paths, progress and feedback\n  EMBED_MODEL:'text-embedding-3-small',\n  OPENAI_MODEL:'gpt-5.5',            // check the exact model ID in your OpenAI account\n  ADMIN_KEY:'odie8SqhbXF22xVtoy1EaDL6KZFTGJmpHpq3NRp050A',             // required by the ingest_library action (Admin tab in the app)\n  TOP_K:40,                          // content items retrieved from Pinecone per assessment\n  DEFAULT_WEEKLY_HOURS:4,\n  MAX_ROWS:400                       // safety limit when falling back to the full CSV catalog\n};\n// ===================================================================\nconst body=$input.first().json.body||{};\nconst f=body.form||{};\nconst action=String(body.action||'assess').trim().toLowerCase();\nconst emp_id=String(f.employee_id||body.employee_id||'').trim().toUpperCase();\nconst emp_name=String(f.employee_name||body.employee_name||'').trim();\nconst slack_user_id=String(f.slack_user_id||body.slack_user_id||'').trim().toUpperCase();\nconst ROUTES={ingest_library:0,verify_certificate:1,assess:2,status:2,progress:2,feedback:2};\nlet route=ROUTES[action],error='';\nlet updates=Array.isArray(body.updates)?body.updates:(body.content_id?[{content_id:body.content_id,done:body.done!==false}]:[]);\nupdates=updates.filter(u=>u&&u.content_id).map(u=>({content_id:String(u.content_id).trim().toUpperCase(),done:u.done!==false&&u.done!=='false'}));\nconst rating=parseInt(body.rating);\nif(route===undefined){route=3;error='Unknown action \"'+action+'\". Use assess, status, progress, feedback, verify_certificate or ingest_library.';}\nelse if(route===0&&String(body.admin_key||'')!==CFG.ADMIN_KEY){route=3;error='Invalid admin key.';}\nelse if(route===1&&!String(body.cert_id||'').trim()){route=3;error='cert_id is required.';}\nelse if(route===2&&(!emp_id||!emp_name)){route=3;error='Employee ID and Employee Name are required.';}\nelse if(action==='progress'&&!updates.length){route=3;error='No progress updates supplied.';}\nelse if(action==='feedback'&&!(rating>=1&&rating<=5)&&!String(body.comment||'').trim()){route=3;error='Give a rating (1-5) or a comment.';}\nif(action==='assess'&&route===2){\n  const miss=['current_skill','career_goal','target_skill','learning_style'].filter(k=>!String(f[k]||'').trim());\n  if(miss.length){route=3;error='Missing form fields: '+miss.join(', ');}\n}\nreturn [{json:{action,route,error,emp_id,emp_name,slack_user_id,updates,\n  rating:rating>=1&&rating<=5?rating:null,comment:String(body.comment||'').trim().slice(0,2000),source:String(body.source||'app'),\n  decision:String(body.decision||'').trim().toLowerCase(),cert_id:String(body.cert_id||'').trim(),cfg:CFG}}];\n"
+      },
+      "name": "Normalize Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        1552
+      ],
+      "id": "76c1c86c-2e8f-4977-b011-bd693dcfc35f"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "output": "={{ $json.route }}"
+      },
+      "name": "Route Request",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        512,
+        1552
+      ],
+      "id": "814cd569-292a-4f2c-88c5-f3bd1c78e440"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'error', message: $json.error } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "name": "Respond - Bad Request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        768,
+        2064
+      ],
+      "id": "57c1240a-f891-4d24-8158-69f67b7139cd"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst body=$('Webhook').first().json.body||{};\nconst rows=parseCSV(body.content_library_csv).map(catalogRow).filter(c=>c.content_id);\nif(!rows.length)throw new Error('content_library_csv is missing or empty');\nconst BATCH=50,out=[];   // 50 x 1536-dim vectors stays under Pinecone's 2 MB upsert limit\nfor(let i=0;i<rows.length;i+=BATCH){const b=rows.slice(i,i+BATCH);\n  out.push({json:{batch_no:out.length+1,rows:b,texts:b.map(c=>c.skill+' - '+c.topic+'. Level: '+c.level+'. Format: '+c.format+'. Provider: '+c.provider+'. Duration: '+c.hours+' hours.')}});}\nreturn out;\n"
+      },
+      "name": "Build Library Batches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        464
+      ],
+      "id": "907fd427-aa5c-4349-9d61-c82ece9f6982"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Normalize Request').first().json.cfg.EMBED_MODEL, input: $json.texts }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 300
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Embed Library Batch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        992,
+        464
+      ],
+      "id": "833bb1f0-036c-4544-bdad-f8cfcab90dc9",
+      "credentials": {
+        "openAiApi": {
+          "id": "sObF5DlBcVgazWWf",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg=$('Normalize Request').first().json.cfg,batches=$('Build Library Batches').all(),embs=$input.all();\nreturn embs.map((e,k)=>{const b=batches[k].json,data=(e.json&&e.json.data)||[];\n  if(data.length!==b.rows.length)throw new Error('Embedding batch '+b.batch_no+' failed: '+JSON.stringify(e.json.error||e.json).slice(0,200));\n  return{json:{url:cfg.PINECONE_HOST+'/vectors/upsert',body:{namespace:cfg.NS_CONTENT,vectors:b.rows.map((c,i)=>({id:c.content_id,values:data[i].embedding,\n    metadata:{content_id:c.content_id,skill:c.skill,topic:c.topic,level:c.level,level_rank:c.level_rank,format:c.format,hours:c.hours,provider:c.provider,cost:c.cost,url:c.url,prereqs:c.prereqs,text:b.texts[i]}}))}}};});\n"
+      },
+      "name": "Build Library Upserts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        464
+      ],
+      "id": "98ee6c36-647b-4fde-9d42-f2cafc776ee2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 200
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Pinecone Upsert Library",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1424,
+        464
+      ],
+      "id": "49f3b216-78c6-4b1f-985b-d3b576b4595a",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "J49n6NfKuFyyGqOA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const res=$input.all().map(x=>x.json),n=res.reduce((s,r)=>s+(parseInt(r.upsertedCount)||0),0);\nconst errors=res.filter(r=>r.error||r.message&&!r.upsertedCount).map(r=>String(r.error&&r.error.message||r.message||r.error).slice(0,200));\nconst rows=$('Build Library Batches').all().reduce((s,b)=>s+b.json.rows.length,0);\nreturn [{json:{status:errors.length?'partial':'ok',message:'Upserted '+n+' of '+rows+' content items into Pinecone namespace \"'+$('Normalize Request').first().json.cfg.NS_CONTENT+'\".',upserted:n,rows,batches:res.length,errors}}];\n"
+      },
+      "name": "Summarize Ingest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        464
+      ],
+      "id": "15aafa2c-16c4-46a2-9819-ad121f333e9c"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond - Ingest",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1872,
+        464
+      ],
+      "id": "f831d249-e1a8-4085-9e40-efb077106747"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.cert_id, a.awarded_at, a.emp_id AS employee_id, e.emp_name AS employee_name, p.target_skill, p.career_goal, p.path_id,\n       (SELECT COALESCE(SUM(hours), 0) FROM path_items WHERE path_id = p.path_id) AS total_hours,\n       (SELECT count(*) FROM path_items WHERE path_id = p.path_id) AS items\nFROM awards a\nJOIN learning_paths p ON p.path_id = a.path_id\nJOIN employees e ON UPPER(e.emp_id) = a.emp_id\nWHERE a.award = 'certificate' AND a.cert_id = TRIM($1::text);",
+        "options": {
+          "queryReplacement": "={{ [ $json.cert_id ] }}"
+        }
+      },
+      "name": "Lookup Certificate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        768,
+        704
+      ],
+      "id": "f91c8aae-4678-411e-9f85-c830d56e9658",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.cert_id ? { status: 'valid', certificate: $json } : { status: 'invalid', message: 'No certificate found with this ID.' } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond - Certificate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        992,
+        704
+      ],
+      "id": "74a63145-35b6-430c-8aed-15ad8e2ca2ee"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH e AS (\n  SELECT emp_id, emp_name, emp_dept, emp_role, slack_user_id\n  FROM employees\n  WHERE UPPER(emp_id) = UPPER(TRIM($1::text)) AND LOWER(TRIM(emp_name)) = LOWER(TRIM($2::text))\n  LIMIT 1),\nu AS (\n  UPDATE employees SET slack_user_id = NULLIF(TRIM($3::text), '')\n  WHERE NULLIF(TRIM($3::text), '') IS NOT NULL AND emp_id IN (SELECT emp_id FROM e)\n  RETURNING slack_user_id)\nSELECT UPPER(e.emp_id) AS employee_id, e.emp_name AS full_name, e.emp_role AS role, e.emp_dept AS department,\n       COALESCE((SELECT slack_user_id FROM u LIMIT 1), e.slack_user_id) AS slack_user_id\nFROM e;",
+        "options": {
+          "queryReplacement": "={{ [ $json.emp_id, $json.emp_name, $json.slack_user_id ] }}"
+        }
+      },
+      "name": "Verify Employee",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        768,
+        1552
+      ],
+      "id": "0496778a-e36b-42b7-8ff2-1f0a1d524636",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "355d24bf-505b-5304-b0e4-5771b4421074",
+              "leftValue": "={{ $json.employee_id ?? '' }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Is Verified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        992,
+        1552
+      ],
+      "id": "721c3552-e525-41e5-8039-bd94743772c4"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'error', message: 'Employee ID and Name do not match our records' } }}",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "name": "Respond - Not Verified",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        1808
+      ],
+      "id": "366f430c-d99b-4a00-ad0d-49377d2af4e6"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH p AS (\n  SELECT * FROM learning_paths\n  WHERE emp_id = UPPER(TRIM($1::text)) AND status IN ('active','completed')\n  ORDER BY (status = 'active') DESC, created_at DESC LIMIT 1)\nSELECT\n  (SELECT row_to_json(p) FROM p) AS path,\n  COALESCE((SELECT json_agg(i ORDER BY i.week_no, i.seq) FROM path_items i JOIN p ON i.path_id = p.path_id), '[]'::json) AS items,\n  COALESCE((SELECT json_agg(a ORDER BY a.awarded_at) FROM awards a JOIN p ON a.path_id = p.path_id), '[]'::json) AS awards,\n  COALESCE((SELECT json_agg(f) FROM (SELECT rating, comment, source, created_at FROM feedback\n            WHERE emp_id = UPPER(TRIM($1::text)) ORDER BY created_at DESC LIMIT 10) f), '[]'::json) AS feedback;",
+        "options": {
+          "queryReplacement": "={{ [ $('Normalize Request').first().json.emp_id ] }}"
+        }
+      },
+      "name": "Load Learner State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        1552
+      ],
+      "id": "5bc36180-855d-4f87-9754-6de3267dc799",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "output": "={{ ({ assess: 0, status: 1, progress: 2, feedback: 3 })[$('Normalize Request').first().json.action] }}"
+      },
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1424,
+        1552
+      ],
+      "id": "a20bece1-c247-4ff0-9108-2d173501edf8"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst req=$('Normalize Request').first().json;\nconst emp=empOf($('Verify Employee').first().json);\nconst s=summarize($input.first().json,emp);\nconst active=s.has_path&&s.path.status==='active'&&!s.path.all_done;\nif(active&&!['update','replace'].includes(req.decision)){\n  const kept=req.decision==='keep';\n  return [{json:{gate:0,response:{...s,status:kept?'kept':'existing_path',\n    message:kept?'Keeping your current learning path. Your progress is unchanged.'\n      :'You already have an incomplete learning path for \"'+s.path.target_skill+'\" ('+s.path.progress_pct+'% complete). Do you want to keep it, update it with your new answers (completed items are kept), or replace it with a fresh path?'}}}];\n}\nconst previous=active?{path_id:s.path.path_id,version:s.path.version,target_skill:s.path.target_skill,career_goal:s.path.career_goal,progress_pct:s.path.progress_pct,\n  items:s.path.items,awards:s.awards.filter(a=>a.award!=='certificate')}:null;\nreturn [{json:{gate:1,decision:active?req.decision:'new',previous,feedback:$input.first().json.feedback||[]}}];\n"
+      },
+      "name": "Assess Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        1152
+      ],
+      "id": "7c40fb06-deb7-4dcc-99e8-001815766690"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.gate }}"
+      },
+      "name": "Existing Path?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1888,
+        1152
+      ],
+      "id": "b919a542-e78a-4cfe-b6d3-3525e50981df"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond - Existing Path",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2112,
+        960
+      ],
+      "id": "653d82e0-4bbb-4f1e-b362-fb658d174564"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst req=$('Normalize Request').first().json,cfg=req.cfg;\nconst body=$('Webhook').first().json.body||{},f=body.form||{},ctx=body.context||{};\nconst db=$('Verify Employee').first().json,gate=$input.first().json;\nconst lib=parseCSV(ctx.content_library_csv).map(catalogRow).filter(c=>c.content_id);\nconst emp=parseCSV(ctx.employee_data_csv).find(r=>String(r.emp_id||'').trim().toUpperCase()===String(db.employee_id).toUpperCase())||{};\n// ---- experience-aware personalisation ----\nconst years=parseFloat(emp.years_of_exp);\nconst band=isNaN(years)?{key:'unknown',label:'Experience not on record',guide:'Experience is unknown: use a balanced progression and explain fundamentals briefly.'}\n :years<2?{key:'early',label:'Early career (<2 yrs)',guide:'Early-career employee: include clear fundamentals, structured/guided content and frequent small hands-on wins; do not stack advanced items early.'}\n :years<5?{key:'mid',label:'Mid-level (2-5 yrs)',guide:'Mid-level employee: assume professional basics, move quickly to applied intermediate content and include one practical project.'}\n :years<10?{key:'senior',label:'Senior (5-10 yrs)',guide:'Senior employee: compress or skip introductory material, favour advanced, architecture and best-practice topics plus a real-world project.'}\n :{key:'expert',label:'Expert / lead (10+ yrs)',guide:'Expert/lead employee: focus on advanced, strategic and design-level content, include a capstone and material useful for mentoring others; minimal fundamentals.'};\nconst prof=String(f.target_proficiency||'None').toLowerCase();\nconst start_rank=/adv/.test(prof)?3:/inter/.test(prof)?2:1;\nconst ls=String(f.learning_style||'').toLowerCase();\nconst pref=/visual/.test(ls)?'Video, Infographic':/hands/.test(ls)?'Hands-on Lab, Project':/read/.test(ls)?'Article, Documentation, Book':/audit|live/.test(ls)?'Podcast, Live Session':'no strong preference (mix formats)';\nconst rating=String(emp.Rating||emp.rating||'').toLowerCase();\nconst pace={'need improvement':'Performance rating \"need improvement\": gentler pace, reinforcement and hands-on practice.','exceed':'Performance rating \"exceed\": include stretch/advanced items and a project.','average':'Performance rating \"average\": standard pace, balanced mix.'}[rating]||'';\nlet weekly=parseFloat(f.weekly_hours);if(!(weekly>=1&&weekly<=40))weekly=cfg.DEFAULT_WEEKLY_HOURS;\nconst completed=gate.previous?gate.previous.items.filter(i=>i.done):[];\nconst profile={employee_id:db.employee_id,name:db.full_name,role:emp.emp_role||db.role||'n/a',department:emp.emp_dept||db.department||'n/a',domain:emp.current_domain||'n/a',\n  years_of_exp:isNaN(years)?null:years,band,start_rank,start_level:LEVEL_NAME[start_rank],target_proficiency:f.target_proficiency||'None',\n  manager_input:emp.manager_input||'none',last_review:emp.last_review_date||'n/a',rating:emp.Rating||emp.rating||'n/a',pace,\n  weekly_hours:weekly,hour_budget:Math.round(weekly*13*10)/10,preferred_formats:pref,\n  current_skill:f.current_skill,career_goal:f.career_goal,target_skill:f.target_skill,learning_style:f.learning_style};\nconst query_text='Training content to become proficient in '+f.target_skill+'. Career goal: '+f.career_goal+'. Current skills: '+f.current_skill+'. Role: '+profile.role+', domain: '+profile.domain+'. Preferred formats: '+pref+'.';\nconst filter={level_rank:{$gte:start_rank}};\nif(completed.length)filter.content_id={$nin:completed.map(i=>i.content_id)};\nreturn [{json:{texts:[query_text],profile,lib,completed,decision:gate.decision,previous:gate.previous,feedback:gate.feedback||[],\n  proposal:String(ctx.project_proposal||'').slice(0,6000),\n  pinecone_content:{url:cfg.PINECONE_HOST+'/query',body:{namespace:cfg.NS_CONTENT,topK:cfg.TOP_K,includeMetadata:true,filter}},\n  pinecone_peers:{url:cfg.PINECONE_HOST+'/query',body:{namespace:cfg.NS_EMPLOYEE,topK:5,includeMetadata:true,filter:{type:{$eq:'path'},status:{$eq:'completed'}}}}}}];\n"
+      },
+      "name": "Prepare Retrieval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2112,
+        1152
+      ],
+      "id": "7469b054-f369-4d45-8080-240437830bdd"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Normalize Request').first().json.cfg.EMBED_MODEL, input: $json.texts }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Embed Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2320,
+        1152
+      ],
+      "id": "8c999e22-6d64-4afe-b231-35974b625097",
+      "credentials": {
+        "openAiApi": {
+          "id": "sObF5DlBcVgazWWf",
+          "name": "OpenAI account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Retrieval').first().json.pinecone_content.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({}, $('Prepare Retrieval').first().json.pinecone_content.body, { vector: ($json.data && $json.data[0]) ? $json.data[0].embedding : [] })) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Query Content (Pinecone)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        1152
+      ],
+      "id": "03432c46-6569-4500-9511-0005ecabebf5",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "J49n6NfKuFyyGqOA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Retrieval').first().json.pinecone_peers.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({}, $('Prepare Retrieval').first().json.pinecone_peers.body, { vector: ($('Embed Query').first().json.data && $('Embed Query').first().json.data[0]) ? $('Embed Query').first().json.data[0].embedding : [] })) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Query Similar Paths (Pinecone)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2768,
+        1152
+      ],
+      "id": "927f7885-ccf8-4f7a-812b-74ab846b04c7",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "J49n6NfKuFyyGqOA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst R=$('Prepare Retrieval').first().json,cfg=$('Normalize Request').first().json.cfg,P=R.profile;\nconst content=$('Query Content (Pinecone)').first().json||{},peers=$input.first().json||{};\nconst excluded=new Set(R.completed.map(i=>i.content_id));\nconst fullById=new Map(R.lib.map(c=>[c.content_id,c]));\nconst fromMeta=m=>{const md=m.metadata||{};return{content_id:String(md.content_id||m.id).toUpperCase(),skill:md.skill||'',topic:md.topic||'',level:md.level||'',level_rank:parseInt(md.level_rank)||LEVEL_RANK(md.level),\n  format:md.format||'',hours:parseFloat(md.hours)||0,provider:md.provider||'',cost:md.cost||'',url:md.url||'',prereqs:Array.isArray(md.prereqs)?md.prereqs.map(x=>String(x).toUpperCase()):[],score:m.score};};\nlet catalog=[],retrieval_mode;\nconst matches=(Array.isArray(content.matches)?content.matches:[]).filter(m=>m.metadata);\nif(matches.length){\n  retrieval_mode='pinecone-rag';\n  catalog=matches.map(fromMeta).filter(c=>!excluded.has(c.content_id)&&c.level_rank>=P.start_rank);\n  const have=new Set(catalog.map(c=>c.content_id)),queue=[...catalog];          // pull in prerequisites RAG did not return\n  while(queue.length){const c=queue.shift();for(const p of c.prereqs){if(have.has(p)||excluded.has(p))continue;const q=fullById.get(p);\n    if(q&&q.level_rank>=P.start_rank){have.add(p);catalog.push(q);queue.push(q);}}}\n}else{\n  retrieval_mode='full-catalog-fallback';\n  if(!R.lib.length)throw new Error('No content: Pinecone returned no matches and content_library_csv is empty. Run the Admin > Sync content library step first.');\n  catalog=R.lib.filter(c=>c.level_rank>=P.start_rank&&!excluded.has(c.content_id));\n  if(catalog.length>cfg.MAX_ROWS)throw new Error('Catalog has '+catalog.length+' rows (limit '+cfg.MAX_ROWS+'). Sync the library to Pinecone so retrieval can narrow it.');\n}\nconst peerLines=(Array.isArray(peers.matches)?peers.matches:[]).filter(m=>m.metadata&&m.metadata.emp_id!==P.employee_id).slice(0,3)\n  .map(m=>'- similarity '+(m.score||0).toFixed(2)+': target \"'+m.metadata.target_skill+'\", completed content '+(m.metadata.content_ids||[]).join(', ')).join('\\n');\nconst lines=catalog.map(c=>[c.content_id,c.skill,c.topic,c.level,c.format,c.hours+'h',c.provider,c.cost,'prereq:'+(c.prereqs.join('/')||'-')].join(' | ')).join('\\n');\nconst fb=(R.feedback||[]).slice(0,5).map(x=>'- '+(x.rating?x.rating+'/5 ':'')+(x.comment||'')).join('\\n');\nlet prev='';\nif(R.previous){prev='\\n\\nEXISTING PATH ('+R.decision.toUpperCase()+' requested): target \"'+R.previous.target_skill+'\", '+R.previous.progress_pct+'% complete.'\n  +'\\nAlready completed (never schedule again): '+(R.completed.map(i=>i.content_id+' '+i.topic).join('; ')||'none')\n  +(R.decision==='update'?'\\nUPDATE mode: build on what was completed, keep continuity with the previous target where it still fits, and re-plan the remaining work for the next 13 weeks.':'\\nREPLACE mode: design a fresh path for the new target.');}\nconst system='You are an expert Learning & Development planner for an enterprise upskilling system. Excerpt of the project proposal you are serving:\\n'+R.proposal\n +'\\n\\nHARD RULES: (1) Use ONLY content_ids that appear in the CATALOG; never invent courses or URLs. (2) Prerequisite content must come before the items that need it (same or earlier week). (3) Plan 13 weeks (90 days) at about '+P.weekly_hours+' hours/week; total hours must not exceed '+P.hour_budget+'. (4) The catalog is pre-filtered to the employee\\'s starting level ('+P.start_level+' and above); never schedule content the employee already completed. (5) Personalise to experience: '+P.band.guide+' (6) If nothing relevant exists, return an empty path and explain in coverage_note; never pad with unrelated content; if coverage is partial, say what is missing. (7) Mix formats, leaning towards the preferred formats. (8) Reply with a single JSON object only, no prose or markdown fences.';\nconst prompt='EMPLOYEE (verified): '+P.name+' ('+P.employee_id+'), role: '+P.role+', department: '+P.department+', domain: '+P.domain\n +'\\nEXPERIENCE: '+(P.years_of_exp==null?'n/a':P.years_of_exp+' years')+' -> '+P.band.label+'. Self-rated proficiency in target skill: '+P.target_proficiency+' (start at '+P.start_level+').'\n +'\\nMANAGER INPUT: '+P.manager_input+' (last review '+P.last_review+'). '+P.pace\n +'\\n\\nFORM ANSWERS\\nCurrent skill: '+P.current_skill+'\\nCareer goal: '+P.career_goal+'\\nTarget skill: '+P.target_skill+'\\nPreferred learning style: '+P.learning_style+' -> prefer formats: '+P.preferred_formats+'\\nTime available: '+P.weekly_hours+' h/week'\n +(fb?'\\n\\nRECENT FEEDBACK FROM THIS EMPLOYEE (adapt difficulty/pace accordingly):\\n'+fb:'')\n +(peerLines?'\\n\\nSIMILAR COMPLETED PATHS (embedding similarity, use as a hint only):\\n'+peerLines:'')+prev\n +'\\n\\nCATALOG ('+retrieval_mode+'; content_id | skill | topic | level | format | hours | provider | cost | prerequisite ids):\\n'+lines\n +'\\n\\nReturn JSON: {\"summary\":\"2-3 sentences\",\"skill_gap_analysis\":\"short\",\"personalization_notes\":\"how experience, rating, style and feedback shaped the plan\",\"coverage_note\":\"gaps in the catalog for this target, or empty string\",\"nearest_library_skills\":[\"catalog skills closest to the target\"],\"path\":[{\"content_id\":\"C0001\",\"week_no\":1,\"rationale\":\"one sentence\"}]}';\nconst openai_body={model:cfg.OPENAI_MODEL,messages:[{role:'system',content:system},{role:'user',content:prompt}],response_format:{type:'json_object'},max_completion_tokens:16000};\nif(/^(gpt-5|o\\d)/.test(cfg.OPENAI_MODEL))openai_body.reasoning_effort='low';\nreturn [{json:{openai_body,catalog,retrieval_mode,profile:P,completed:R.completed,decision:R.decision,previous:R.previous}}];\n"
+      },
+      "name": "Prepare Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2992,
+        1152
+      ],
+      "id": "b0a061a0-f8ea-45f4-9bed-d8e388f2647f"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.openai_body) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "name": "Call OpenAI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3200,
+        1152
+      ],
+      "id": "9e74c66f-9768-4f1f-883f-610b3249c10e",
+      "credentials": {
+        "openAiApi": {
+          "id": "sObF5DlBcVgazWWf",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst resp=$input.first().json,c=$('Prepare Context').first().json,P=c.profile,req=$('Normalize Request').first().json;\nconst emp=empOf($('Verify Employee').first().json);\nif(resp.error)throw new Error('OpenAI error: '+(resp.error.message||JSON.stringify(resp.error)));\nconst ch=(resp.choices||[])[0]||{},text=(ch.message&&ch.message.content)||'';\nif(ch.finish_reason==='length')throw new Error('OpenAI output was cut off: raise max_completion_tokens in Prepare Context');\nlet plan;try{plan=JSON.parse(text.slice(text.indexOf('{'),text.lastIndexOf('}')+1));}catch(e){throw new Error('LLM did not return valid JSON: '+text.slice(0,200));}\nconst byId=new Map(c.catalog.map(x=>[x.content_id,x])),seen=new Set(),raw=Array.isArray(plan.path)?plan.path:[];\nconst items=raw.map(p=>({...p,content_id:String(p.content_id||'').trim().toUpperCase()}))\n .filter(p=>byId.has(p.content_id)&&!seen.has(p.content_id)&&seen.add(p.content_id))          // guardrail: catalog IDs only\n .map((p,k)=>({...byId.get(p.content_id),week_no:Math.min(13,Math.max(1,parseInt(p.week_no)||1)),seq:k,rationale:String(p.rationale||'').slice(0,300)}));\n// 1) prerequisite-safe order (DFS topological sort that keeps the LLM's week order where possible)\nconst idx=new Map(items.map(i=>[i.content_id,i])),ordered=[],done=new Set(),visiting=new Set();\nconst visit=i=>{if(done.has(i.content_id)||visiting.has(i.content_id))return;visiting.add(i.content_id);\n  for(const p of i.prereqs){const q=idx.get(p);if(q)visit(q);}visiting.delete(i.content_id);done.add(i.content_id);ordered.push(i);};\nitems.slice().sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq).forEach(visit);\n// 2) hour budget + weekly capacity scheduling\nconst weekly=P.weekly_hours,cap=P.hour_budget,load=Array(15).fill(0),placed=new Map(),out=[],dropped=[];let total=0;\nfor(const i of ordered){\n  if(i.prereqs.some(p=>idx.has(p)&&!placed.has(p))){dropped.push({content_id:i.content_id,reason:'its prerequisite did not fit'});continue;}\n  if(total+i.hours>cap+1e-9){dropped.push({content_id:i.content_id,reason:'over the '+cap+'h budget'});continue;}\n  let w=Math.max(i.week_no,...i.prereqs.filter(p=>placed.has(p)).map(p=>placed.get(p).end_week));\n  while(w<13&&load[w]>=weekly-1e-9)w++;                       // first week with free capacity\n  let end=w;\n  if(load[w]+i.hours<=weekly*1.25+1e-9)load[w]+=i.hours;       // fits in one week\n  else{let rem=i.hours;while(rem>1e-9){const take=end>=13?rem:Math.min(rem,Math.max(0,weekly-load[end]));load[end]+=take;rem-=take;if(rem>1e-9)end++;}}  // long item spans weeks\n  i.week_no=w;i.end_week=end;total+=i.hours;placed.set(i.content_id,i);out.push(i);\n}\nout.sort((a,b)=>a.week_no-b.week_no||ordered.indexOf(a)-ordered.indexOf(b));\nconst carried=c.decision==='update'?c.completed.map((i,k)=>({...i,week_no:0,end_week:0,seq:k+1,status:'completed'})):[];\nconst dbItems=[...carried,...out.map((i,k)=>({...i,seq:k+1,status:'pending',completed_at:null}))].map(i=>({content_id:i.content_id,week_no:i.week_no,end_week:i.end_week==null?i.week_no:i.end_week,seq:i.seq,skill:i.skill,topic:i.topic,level:i.level,\n  format:i.format,hours:i.hours,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status,completed_at:i.completed_at||null}));\nconst nearest=(plan.nearest_library_skills||[]).slice(0,5),ok=out.length>0;\nconst fields={target_skill:P.target_skill,career_goal:P.career_goal,current_skill:P.current_skill,learning_style:P.learning_style,target_proficiency:P.target_proficiency,\n  experience_years:P.years_of_exp,experience_band:P.band.label,weekly_hours:weekly,summary:String(plan.summary||''),skill_gap_analysis:String(plan.skill_gap_analysis||''),\n  coverage_note:String(plan.coverage_note||''),personalization_notes:String(plan.personalization_notes||'')};\nconst assessment={form:{current_skill:P.current_skill,career_goal:P.career_goal,target_skill:P.target_skill,learning_style:P.learning_style,target_proficiency:P.target_proficiency,weekly_hours:weekly},\n  profile:{role:P.role,department:P.department,domain:P.domain,years_of_exp:P.years_of_exp,band:P.band.label,rating:P.rating,manager_input:P.manager_input},submitted_at:new Date().toISOString()};\nconst S=v=>v==null?'':String(v);\nconst prev=c.previous;\nconst db=[emp.id,S(fields.target_skill),S(fields.career_goal),S(fields.current_skill),S(fields.learning_style),S(fields.target_proficiency),S(fields.experience_years),S(fields.experience_band),\n  S(weekly),fields.summary,fields.skill_gap_analysis,fields.coverage_note,fields.personalization_notes,JSON.stringify(assessment),prev?S(prev.path_id):'',S(prev?(prev.version||1)+1:1),\n  JSON.stringify(dbItems),c.decision==='update'?'true':'false'];\nconst noContent={status:'no_content',employee:emp,has_path:false,message:fields.coverage_note||'The content library has nothing relevant to this target skill.',\n  summary:fields.summary,skill_gap_analysis:fields.skill_gap_analysis,coverage_note:fields.coverage_note,nearest_library_skills:nearest,retrieval_mode:c.retrieval_mode,\n  markdown:'### No matching content for '+emp.name+' ('+emp.id+')\\n'+(fields.coverage_note||'The content library has nothing relevant to this target skill.')+(nearest.length?'\\n\\n**Closest library skills:** '+nearest.join(', '):'')};\nreturn [{json:{ok,db,fields,dbItems,assessment,nearest,decision:c.decision,previous:prev,retrieval_mode:c.retrieval_mode,\n  dropped_invalid_items:raw.length-items.length,dropped_for_schedule:dropped,response:ok?null:noContent}}];\n"
+      },
+      "name": "Build Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3424,
+        1152
+      ],
+      "id": "c08d331f-8902-4462-bd82-b3684312373f"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "680170c9-daca-57d1-8918-38a598ce8416",
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Has Plan Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3648,
+        1152
+      ],
+      "id": "471c4e27-4f04-4ff2-8c19-4a49b9ed09d7"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond - No Content",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3872,
+        1360
+      ],
+      "id": "f075af90-2d47-4cd1-ba17-01b0ddeb90f0"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE learning_paths SET status = 'superseded', updated_at = now()\nWHERE emp_id = UPPER(TRIM($1::text)) AND status = 'active'\nRETURNING path_id, version;",
+        "options": {
+          "queryReplacement": "={{ [ $('Normalize Request').first().json.emp_id ] }}"
+        }
+      },
+      "name": "Archive Old Path",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3872,
+        1152
+      ],
+      "id": "7d3407fa-1dde-4770-9872-33f5e0525cd0",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH p AS (\n  INSERT INTO learning_paths (emp_id, status, target_skill, career_goal, current_skill, learning_style, target_proficiency,\n    experience_years, experience_band, weekly_hours, summary, skill_gap_analysis, coverage_note, personalization_notes,\n    assessment, parent_path_id, version)\n  VALUES (UPPER(TRIM($1::text)), 'active', $2, $3, $4, $5, $6, NULLIF($7::text, '')::numeric, $8, $9::numeric, $10, $11, $12, $13,\n    $14::jsonb, NULLIF($15::text, '')::bigint, $16::int)\n  RETURNING path_id, created_at),\ni AS (\n  INSERT INTO path_items (path_id, content_id, week_no, end_week, seq, skill, topic, level, format, hours, provider, cost, url, rationale, status, completed_at)\n  SELECT p.path_id, x.content_id, x.week_no, x.end_week, x.seq, x.skill, x.topic, x.level, x.format, x.hours, x.provider, x.cost, x.url, x.rationale, x.status, x.completed_at\n  FROM p, jsonb_to_recordset($17::jsonb) AS x(content_id text, week_no int, end_week int, seq int, skill text, topic text, level text, format text,\n       hours numeric, provider text, cost text, url text, rationale text, status text, completed_at timestamptz)\n  RETURNING 1),\na AS (\n  INSERT INTO awards (path_id, emp_id, award, cert_id, awarded_at)\n  SELECT p.path_id, aw.emp_id, aw.award, NULL, aw.awarded_at\n  FROM p, awards aw\n  WHERE $18::boolean AND aw.path_id = NULLIF($15::text, '')::bigint AND aw.award <> 'certificate'\n  RETURNING 1)\nSELECT p.path_id, p.created_at, (SELECT count(*) FROM i) AS item_count, (SELECT count(*) FROM a) AS carried_awards FROM p;",
+        "options": {
+          "queryReplacement": "={{ $('Build Plan').first().json.db }}"
+        }
+      },
+      "name": "Insert Path",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        4080,
+        1152
+      ],
+      "id": "5bc9a66e-4cc7-417f-a2bd-f6e21ff7f05c",
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst B=$('Build Plan').first().json,ins=$input.first().json,emp=empOf($('Verify Employee').first().json);\nconst pathRow={path_id:ins.path_id,status:'active',version:B.db[15],created_at:ins.created_at||new Date().toISOString(),...B.fields};\nconst s=summarize({path:pathRow,items:B.dbItems,awards:B.previous&&B.decision==='update'?B.previous.awards:[]},emp);\nconst esc=x=>String(x==null?'':x).replace(/\\|/g,'/');\nconst p=s.path;\nconst md=['### 90-day learning plan for '+emp.name+' ('+emp.id+')',p.summary,'**Skill-gap analysis:** '+p.skill_gap_analysis,\n  p.personalization_notes?'**Personalisation:** '+p.personalization_notes:'',p.coverage_note?'**Coverage note:** '+p.coverage_note:'','',\n  '| Week | Skill | Topic | Level | Format | Hours | Provider | Cost |','|---|---|---|---|---|---|---|---|',\n  ...p.items.map(i=>'| '+(i.week_no||'✔')+' | '+esc(i.skill)+' | ['+esc(i.topic)+']('+i.url+') | '+i.level+' | '+i.format+' | '+i.hours+' | '+esc(i.provider)+' | '+esc(i.cost)+' |'),\n  '','**Total:** '+p.total_hours+' hours, '+p.items_total+' items.'].filter(x=>x!=='').join('\\n');\nconst verb={new:'Learning plan generated.',update:'Learning path updated - your completed items and badges were kept.',replace:'Previous path replaced with a new learning plan.'}[B.decision]||'Learning plan generated.';\nconst response={...s,status:'success',message:verb,decision:B.decision,retrieval_mode:B.retrieval_mode,nearest_library_skills:B.nearest,\n  dropped_invalid_items:B.dropped_invalid_items,dropped_for_schedule:B.dropped_for_schedule,markdown:md};\nconst aText='Employee '+emp.id+' ('+(B.assessment.profile.role||'')+', '+(B.assessment.profile.band||'')+') assessment. Current skill: '+B.fields.current_skill+'. Target skill: '+B.fields.target_skill+\n  '. Career goal: '+B.fields.career_goal+'. Learning style: '+B.fields.learning_style+'. Proficiency: '+B.fields.target_proficiency+'.';\nconst pText='Learning path for '+B.fields.target_skill+' (goal: '+B.fields.career_goal+'). '+p.summary+' Content: '+p.items.map(i=>i.topic+' ['+i.level+', '+i.format+']').join('; ');\nreturn [{json:{response,texts:[aText,pText],summary:s}}];\n"
+      },
+      "name": "Prepare Employee Docs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4304,
+        1152
+      ],
+      "id": "99ff5137-476d-41d1-a33d-669167182a89"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond - Plan",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4528,
+        1152
+      ],
+      "id": "6d62f602-b90f-41e7-8539-d5ecc941f8c2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Normalize Request').first().json.cfg.EMBED_MODEL, input: $('Prepare Employee Docs').first().json.texts }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Embed Employee Docs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4752,
+        1152
+      ],
+      "id": "2ff839c6-ee70-4d1a-8771-b493e34cb581",
+      "credentials": {
+        "openAiApi": {
+          "id": "sObF5DlBcVgazWWf",
+          "name": "OpenAI account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const D=$('Prepare Employee Docs').first().json,cfg=$('Normalize Request').first().json.cfg,B=$('Build Plan').first().json;\nconst emb=$input.first().json,s=D.summary,p=s.path,arch=$('Archive Old Path').first().json||{};\nif(!emb.data||emb.data.length<2)return [{json:{skip:true,reason:'embedding failed',error:emb.error||null}}];\nconst base={emp_id:s.employee.id,path_id:p.path_id,target_skill:p.target_skill||'',career_goal:p.career_goal||'',experience_band:p.experience_band||'',created_at:p.created_at};\nconst vectors=[\n  {id:'assessment#'+s.employee.id+'#'+p.path_id,values:emb.data[0].embedding,metadata:{...base,type:'assessment',current_skill:p.current_skill||'',learning_style:p.learning_style||'',\n    target_proficiency:p.target_proficiency||'',decision:B.decision,text:D.texts[0].slice(0,4000)}},\n  {id:'path#'+s.employee.id+'#'+p.path_id,values:emb.data[1].embedding,metadata:{...base,type:'path',status:'active',version:p.version,progress_pct:p.progress_pct,\n    total_hours:p.total_hours,items_total:p.items_total,items_completed:p.items_completed,content_ids:p.items.map(i=>i.content_id),\n    completed_ids:p.items.filter(i=>i.done).map(i=>i.content_id),badges:Object.keys(s.badges).filter(k=>s.badges[k]),updated_at:new Date().toISOString(),text:D.texts[1].slice(0,4000)}}];\nconst out=[{json:{url:cfg.PINECONE_HOST+'/vectors/upsert',body:{namespace:cfg.NS_EMPLOYEE,vectors}}}];\nif(arch.path_id)out.push({json:{url:cfg.PINECONE_HOST+'/vectors/update',body:{namespace:cfg.NS_EMPLOYEE,id:'path#'+s.employee.id+'#'+arch.path_id,setMetadata:{status:'superseded',updated_at:new Date().toISOString()}}}});\nreturn out;\n"
+      },
+      "name": "Build Pinecone Upserts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4960,
+        1152
+      ],
+      "id": "1ba51223-6aa1-42d3-b09d-161bfb08f761"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Pinecone Upsert Employee",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5184,
+        1152
+      ],
+      "id": "f8a8d521-53d3-4220-b9d1-921e9c639042",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "J49n6NfKuFyyGqOA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const D=$('Prepare Employee Docs').first().json,s=D.summary,p=s.path;\nconst ch=s.employee.slack_user_id;if(!ch)return [];\nconst lines=p.items.filter(i=>!i.done).slice(0,6).map(i=>'• *'+(i.end_week>i.week_no?'Weeks '+i.week_no+'-'+i.end_week:'Week '+i.week_no)+'* <'+i.url+'|'+i.topic+'> ('+i.format+', '+i.hours+'h)').join('\\n');\nconst blocks=[{type:'header',text:{type:'plain_text',text:'🧭 Your 90-day learning path is ready'}},\n {type:'section',text:{type:'mrkdwn',text:'*Target:* '+p.target_skill+'\\n*Goal:* '+p.career_goal+'\\n*Plan:* '+p.items_total+' items · '+p.total_hours+' h · ~'+(p.weekly_hours||'')+' h/week\\n\\n'+(p.summary||'')}},\n {type:'section',text:{type:'mrkdwn',text:'*Coming up*\\n'+(lines||'_All done!_')}},\n {type:'context',elements:[{type:'mrkdwn',text:'Milestones: 🥉 25% · 🥈 50% · 🥇 75% · 🎓 100% certificate. Use `/learn done <content_id>` to log progress, `/learn status` to check in.'}]}];\nreturn [{json:{channel:ch,text:'Your 90-day learning path for '+p.target_skill+' is ready',blocks}}];\n"
+      },
+      "name": "Slack New Path Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5408,
+        1152
+      ],
+      "id": "e243dedf-a3e6-4a41-bdf2-1d9605d87883"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.channel, text: $json.text, blocks: $json.blocks, unfurl_links: false }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Slack Post New Path",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5632,
+        1152
+      ],
+      "id": "143f32aa-e005-49ea-a882-a59e10618d08",
+      "credentials": {
+        "slackApi": {
+          "id": "asrh7BzewphjvQtP",
+          "name": "Slack account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst emp=empOf($('Verify Employee').first().json);\nconst s=summarize($input.first().json,emp);\nreturn [{json:{response:{...s,status:'ok',message:s.has_path?'':'No learning path yet - complete the assessment to generate one.'}}}];\n"
+      },
+      "name": "Build Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        1456
+      ],
+      "id": "a2402200-bcbd-47fa-bf97-ba8d9b16c0e1"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond - Status",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1888,
+        1456
+      ],
+      "id": "376366db-e15a-43d3-8fa6-35b8cd54687f"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH p AS (\n  SELECT path_id FROM learning_paths\n  WHERE emp_id = UPPER(TRIM($1::text)) AND status = 'active' ORDER BY created_at DESC LIMIT 1),\nx AS (SELECT * FROM jsonb_to_recordset($2::jsonb) AS x(content_id text, done boolean)),\nu AS (\n  UPDATE path_items i\n  SET status = CASE WHEN x.done THEN 'completed' ELSE 'pending' END,\n      completed_at = CASE WHEN x.done THEN COALESCE(i.completed_at, now()) ELSE NULL END\n  FROM p, x\n  WHERE i.path_id = p.path_id AND UPPER(i.content_id) = UPPER(TRIM(x.content_id))\n    AND i.status <> CASE WHEN x.done THEN 'completed' ELSE 'pending' END\n  RETURNING i.content_id, i.status)\nSELECT (SELECT path_id FROM p) AS path_id, COALESCE((SELECT json_agg(u) FROM u), '[]'::json) AS changed;",
+        "options": {
+          "queryReplacement": "={{ [ $('Normalize Request').first().json.emp_id, JSON.stringify($('Normalize Request').first().json.updates) ] }}"
+        }
+      },
+      "name": "Update Progress",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1664,
+        1712
+      ],
+      "id": "371485ef-5c63-4dbd-bb03-6e410a0f65e4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH p AS (\n  SELECT * FROM learning_paths\n  WHERE emp_id = UPPER(TRIM($1::text)) AND status IN ('active','completed')\n  ORDER BY (status = 'active') DESC, created_at DESC LIMIT 1)\nSELECT\n  (SELECT row_to_json(p) FROM p) AS path,\n  COALESCE((SELECT json_agg(i ORDER BY i.week_no, i.seq) FROM path_items i JOIN p ON i.path_id = p.path_id), '[]'::json) AS items,\n  COALESCE((SELECT json_agg(a ORDER BY a.awarded_at) FROM awards a JOIN p ON a.path_id = p.path_id), '[]'::json) AS awards,\n  COALESCE((SELECT json_agg(f) FROM (SELECT rating, comment, source, created_at FROM feedback\n            WHERE emp_id = UPPER(TRIM($1::text)) ORDER BY created_at DESC LIMIT 10) f), '[]'::json) AS feedback;",
+        "options": {
+          "queryReplacement": "={{ [ $('Normalize Request').first().json.emp_id ] }}"
+        }
+      },
+      "name": "Reload Learner State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1888,
+        1712
+      ],
+      "id": "c1ae2ba7-8b70-4827-b8ec-e2bb2f77ffec",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst upd=$('Update Progress').first().json||{},emp=empOf($('Verify Employee').first().json);\nconst s=summarize($input.first().json,emp);\nif(!upd.path_id||!s.has_path||s.path.status!=='active')\n  return [{json:{has_active:false,response:{...s,status:'error',message:'No active learning path to update. Complete an assessment first.'}}}];\nconst p=s.path,ratio=p.progress_ratio;\nconst fresh=BADGES.filter(b=>!s.badges[b.key]&&(b.key==='certificate'?p.all_done:ratio>=b.at-1e-9));\nconst stamp=Date.now().toString(36).toUpperCase();\nconst new_awards=fresh.map(b=>({award:b.key,cert_id:b.key==='certificate'?'CERT-'+emp.id+'-'+p.path_id+'-'+stamp:null}));\nreturn [{json:{has_active:true,path_id:p.path_id,complete:p.all_done,new_awards,changed:upd.changed||[]}}];\n"
+      },
+      "name": "Compute Awards",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2112,
+        1712
+      ],
+      "id": "500b80bb-fc58-4ca7-8628-d788e2f401e6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c74a8a43-1154-5d65-a5d5-22e12de668c9",
+              "leftValue": "={{ $json.has_active }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Has Active Path?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        1712
+      ],
+      "id": "306df03c-3834-484b-a6b4-d5db93b38130"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "name": "Respond - No Active Path",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2544,
+        1904
+      ],
+      "id": "8c9fcd99-eb23-4c6e-951b-510405f6a368"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (\n  INSERT INTO awards (path_id, emp_id, award, cert_id)\n  SELECT $1::bigint, UPPER(TRIM($2::text)), x.award, x.cert_id\n  FROM jsonb_to_recordset($3::jsonb) AS x(award text, cert_id text)\n  ON CONFLICT (path_id, award) DO NOTHING\n  RETURNING award, cert_id, awarded_at),\nc AS (\n  UPDATE learning_paths\n  SET status = CASE WHEN $4::boolean THEN 'completed' ELSE status END,\n      completed_at = CASE WHEN $4::boolean THEN COALESCE(completed_at, now()) ELSE completed_at END,\n      updated_at = now()\n  WHERE path_id = $1::bigint\n  RETURNING status)\nSELECT COALESCE((SELECT json_agg(ins) FROM ins), '[]'::json) AS new_awards, (SELECT status FROM c) AS path_status;",
+        "options": {
+          "queryReplacement": "={{ [ $json.path_id, $('Normalize Request').first().json.emp_id, JSON.stringify($json.new_awards), String($json.complete) ] }}"
+        }
+      },
+      "name": "Save Awards",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2544,
+        1712
+      ],
+      "id": "0b4a73b4-274f-4a61-993d-b4eeabc210e5",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst C=$('Compute Awards').first().json,saved=$input.first().json||{},emp=empOf($('Verify Employee').first().json);\nconst cfg=$('Normalize Request').first().json.cfg;\nconst st=$('Reload Learner State').first().json;\nconst newAw=(Array.isArray(saved.new_awards)?saved.new_awards:[]);\nconst state={...st,path:{...st.path,status:saved.path_status||st.path.status,completed_at:C.complete?new Date().toISOString():st.path.completed_at},awards:[...(st.awards||[]),...newAw]};\nconst s=summarize(state,emp),p=s.path;\nconst celebrate=newAw.map(a=>{const b=BADGES.find(x=>x.key===a.award);return{award:a.award,label:b.label,emoji:b.emoji,cert_id:a.cert_id||null};});\nconst msg=celebrate.length?'Congratulations! You earned: '+celebrate.map(x=>x.emoji+' '+x.label).join(', '):'Progress saved: '+p.progress_pct+'% complete.';\nreturn [{json:{response:{...s,status:'ok',message:msg,new_awards:celebrate,changed:C.changed},summary:s,celebrate,\n  pinecone:{url:cfg.PINECONE_HOST+'/vectors/update',body:{namespace:cfg.NS_EMPLOYEE,id:'path#'+emp.id+'#'+p.path_id,setMetadata:{status:p.status,progress_pct:p.progress_pct,\n    items_completed:p.items_completed,completed_ids:p.items.filter(i=>i.done).map(i=>i.content_id),badges:Object.keys(s.badges).filter(k=>s.badges[k]),updated_at:new Date().toISOString()}}}}}];\n"
+      },
+      "name": "Build Progress Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2768,
+        1712
+      ],
+      "id": "53943c2c-8e5b-42be-b0e8-018c6dfd78fa"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond - Progress",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2992,
+        1712
+      ],
+      "id": "216f21d9-6a7f-464f-a973-39f979ce55ab"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Build Progress Response').first().json.pinecone.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Build Progress Response').first().json.pinecone.body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Pinecone Update Progress",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3200,
+        1712
+      ],
+      "id": "0ef727c9-bcbb-451f-8720-28412be7ab05",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "J49n6NfKuFyyGqOA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const R=$('Build Progress Response').first().json,s=R.summary,p=s.path,ch=s.employee.slack_user_id;\nif(!ch||!R.celebrate.length)return [];\nconst bar=x=>{const n=Math.round(x/10);return '█'.repeat(n)+'░'.repeat(10-n)+' '+x+'%';};\nreturn R.celebrate.map(a=>{\n  if(a.award==='certificate'){const c=s.certificate||{};\n    return{json:{channel:ch,text:'🎓 Certificate of completion: '+p.target_skill,blocks:[\n      {type:'header',text:{type:'plain_text',text:'🎓 Certificate of Completion'}},\n      {type:'section',text:{type:'mrkdwn',text:'This certifies that\\n*'+s.employee.name+'*  ('+s.employee.id+')\\nhas successfully completed the 90-day personalised learning path in\\n*'+p.target_skill+'*'}},\n      {type:'section',fields:[{type:'mrkdwn',text:'*Certificate ID*\\n`'+(a.cert_id||c.cert_id)+'`'},{type:'mrkdwn',text:'*Issued*\\n'+new Date().toISOString().slice(0,10)},\n        {type:'mrkdwn',text:'*Learning items*\\n'+p.items_total},{type:'mrkdwn',text:'*Hours invested*\\n'+p.total_hours}]},\n      {type:'context',elements:[{type:'mrkdwn',text:'🥉 🥈 🥇 🎓  All milestones unlocked. Download the PDF from the Achievements tab of the Learning Path app.'}]}]}};}\n  return{json:{channel:ch,text:a.emoji+' You earned the '+a.label+'!',blocks:[\n    {type:'section',text:{type:'mrkdwn',text:a.emoji+' *'+a.label+' unlocked!*\\nYou are '+p.progress_pct+'% through *'+p.target_skill+'*.\\n`'+bar(p.progress_pct)+'`'}},\n    {type:'context',elements:[{type:'mrkdwn',text:'Next up: '+(p.next_items.map(i=>'<'+i.url+'|'+i.topic+'>').join(' · ')||'—')}]}]}};\n});\n"
+      },
+      "name": "Award Slack Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3424,
+        1712
+      ],
+      "id": "84236897-4140-427b-8c73-5428d8ea6b2b"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.channel, text: $json.text, blocks: $json.blocks, unfurl_links: false }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Slack Post Award",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3648,
+        1712
+      ],
+      "id": "7f8f7d52-f2f4-4485-948b-c6314eb531db",
+      "credentials": {
+        "slackApi": {
+          "id": "asrh7BzewphjvQtP",
+          "name": "Slack account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO feedback (emp_id, path_id, source, rating, comment)\nSELECT UPPER(TRIM($1::text)),\n       (SELECT path_id FROM learning_paths WHERE emp_id = UPPER(TRIM($1::text)) AND status = 'active' ORDER BY created_at DESC LIMIT 1),\n       $2, NULLIF($3::text, '')::int, $4\nRETURNING id, path_id, rating, comment, created_at;",
+        "options": {
+          "queryReplacement": "={{ [ $('Normalize Request').first().json.emp_id, $('Normalize Request').first().json.source, String($('Normalize Request').first().json.rating ?? ''), $('Normalize Request').first().json.comment ] }}"
+        }
+      },
+      "name": "Save Feedback",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1664,
+        2064
+      ],
+      "id": "07797166-6255-46bf-9c15-7700bf447454",
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req=$('Normalize Request').first().json,cfg=req.cfg,row=$input.first().json||{};\nconst txt=(req.comment||'').toLowerCase(),r=req.rating;\nconst tooHard=/hard|difficult|complex|overwhelm|too fast|too much|lost|struggl/.test(txt),tooEasy=/easy|boring|basic|too slow|already know|repetitive/.test(txt);\nconst suggest=(r!=null&&r<=2)||tooHard||tooEasy;\nconst hint=tooHard?'It sounds like the pace or difficulty is too high.':tooEasy?'It sounds like the content may be too basic.':(r!=null&&r<=2)?'Sorry this is not working well.':'';\nconst message='Thanks for the feedback!'+(suggest?' '+hint+' You can re-run the assessment and choose \"Update my path\" - your progress is kept and the new plan will take this feedback into account.':'');\nconst text='Feedback from '+req.emp_id+' ('+(r?r+'/5':'no rating')+'): '+(req.comment||'(no comment)');\nreturn [{json:{response:{status:'ok',message,suggest_update:suggest,feedback:{id:row.id,rating:r,comment:req.comment}},texts:[text],\n  vector_id:'feedback#'+req.emp_id+'#'+(row.id||Date.now()),meta:{type:'feedback',emp_id:req.emp_id,path_id:String(row.path_id||''),rating:r||0,source:req.source,created_at:new Date().toISOString(),text:text.slice(0,2000)}}}];\n"
+      },
+      "name": "Build Feedback Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1888,
+        2064
+      ],
+      "id": "90c2911c-670b-43f7-8662-26015de923d2"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond - Feedback",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2112,
+        2064
+      ],
+      "id": "9e420c1f-b978-4bc4-beb6-07eb155ea2ae"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Normalize Request').first().json.cfg.EMBED_MODEL, input: $('Build Feedback Response').first().json.texts }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Embed Feedback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2320,
+        2064
+      ],
+      "id": "4ca97d50-3385-476f-a27e-cfa4ee42ac7b",
+      "credentials": {
+        "openAiApi": {
+          "id": "sObF5DlBcVgazWWf",
+          "name": "OpenAI account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const F=$('Build Feedback Response').first().json,cfg=$('Normalize Request').first().json.cfg,emb=$input.first().json;\nif(!emb.data||!emb.data[0])return [{json:{skip:true,error:emb.error||'embedding failed'}}];\nreturn [{json:{url:cfg.PINECONE_HOST+'/vectors/upsert',body:{namespace:cfg.NS_EMPLOYEE,vectors:[{id:F.vector_id,values:emb.data[0].embedding,metadata:F.meta}]}}}];\n"
+      },
+      "name": "Build Feedback Vector",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2544,
+        2064
+      ],
+      "id": "2e3a6417-6e00-4024-825b-ab83437c2485"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Pinecone Upsert Feedback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2768,
+        2064
+      ],
+      "id": "5af9be0a-e1ad-4b43-9c7e-c93935911a54",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "J49n6NfKuFyyGqOA",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-learning",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Slack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        64,
+        2560
+      ],
+      "id": "04c72a76-50ed-42b2-964d-1805c8d1055d",
+      "webhookId": "slack-learning"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ================= SLACK CONFIG =================\nconst SLACK_CFG={\n  VERIFICATION_TOKEN:'',  // Slack app > Basic Information > Verification Token (leave '' to skip the check while testing)\n  INTERNAL_URL:'http://localhost:5678/webhook/employee-assessment',  // this workflow's main webhook as seen from n8n itself\n  APP_URL:'http://localhost:7860'   // Gradio app URL shown in Slack messages\n};\n// =================================================\nconst b=$input.first().json.body||{};\nlet user='',text='',response_url='',token=b.token||'',source='command';\nif(b.payload){const p=typeof b.payload==='string'?JSON.parse(b.payload):b.payload;source='interactive';\n  user=(p.user&&p.user.id)||'';response_url=p.response_url||'';token=p.token||token;\n  const a=(p.actions||[])[0]||{};text=String(a.value||'').replace(/:/g,' ');}\nelse{user=b.user_id||'';text=String(b.text||'');response_url=b.response_url||'';}\nconst valid=!!user&&(!SLACK_CFG.VERIFICATION_TOKEN||token===SLACK_CFG.VERIFICATION_TOKEN);\nconst parts=text.trim().split(/\\s+/).filter(Boolean);\nconst alias={status:'status',progress:'status',me:'status',done:'done',complete:'done',finished:'done',undo:'undo',feedback:'feedback',fb:'feedback',link:'link',help:'help'};\nconst cmd=alias[(parts.shift()||'help').toLowerCase()]||'help';\nreturn [{json:{valid,cmd,args:parts,slack_user_id:String(user).toUpperCase(),response_url,source,\n  link_emp_id:cmd==='link'?(parts[0]||''):'',link_name:cmd==='link'?parts.slice(1).join(' '):'',cfg:SLACK_CFG}}];\n"
+      },
+      "name": "Parse Slack Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        2560
+      ],
+      "id": "e121dd1e-4c0c-44bf-99cc-f3bbb7c42ba5"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "96c2576f-e260-5428-bb2d-00da0f6c7bd1",
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Valid Slack Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        512,
+        2560
+      ],
+      "id": "40c0fabb-b134-46f5-a2f7-2fffb4cb6db8"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { text: 'Unauthorized request' } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "name": "Respond - Slack Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        2752
+      ],
+      "id": "2f19c94c-9866-43de-bf12-d7932681dffc"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { response_type: 'ephemeral', text: '⏳ Working on it…' } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Ack Slack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        2560
+      ],
+      "id": "3bab12df-4524-4191-8fd0-f77151a1b351"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT UPPER(emp_id) AS emp_id, emp_name, slack_user_id\nFROM employees\nWHERE ($1::text = 'link' AND UPPER(emp_id) = UPPER(TRIM($3::text)) AND LOWER(TRIM(emp_name)) = LOWER(TRIM($4::text)))\n   OR ($1::text <> 'link' AND slack_user_id = $2::text)\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [ $('Parse Slack Request').first().json.cmd, $('Parse Slack Request').first().json.slack_user_id, $('Parse Slack Request').first().json.link_emp_id, $('Parse Slack Request').first().json.link_name ] }}"
+        }
+      },
+      "name": "Lookup Slack Employee",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        944,
+        2560
+      ],
+      "id": "aae32c31-92f5-401b-8c30-cd1d95573818",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const S=$('Parse Slack Request').first().json,e=$input.first().json||{};\nconst HELP='*Learning Path bot* 📚\\n• `/learn link EMP0001 Your Name` - connect your Slack account (once)\\n• `/learn status` - progress, badges and what is next\\n• `/learn done C0003` - mark content complete (`undo C0003` to revert)\\n• `/learn feedback 4 too fast-paced` - rate 1-5 and comment\\nMilestones: 🥉 25% · 🥈 50% · 🥇 75% · 🎓 100% certificate';\nconst reply=t=>[{json:{route:2,response_url:S.response_url,reply:{response_type:'ephemeral',replace_original:false,text:t}}}];\nif(S.cmd==='help')return reply(HELP);\nif(S.cmd==='link')return e.emp_id?[{json:{route:1,response_url:S.response_url,emp_id:e.emp_id,emp_name:e.emp_name,slack_user_id:S.slack_user_id}}]\n  :reply(S.link_emp_id?'❌ Employee ID and name do not match HR records. Usage: `/learn link EMP0001 Full Name`':'Usage: `/learn link EMP0001 Full Name`');\nif(!e.emp_id)return reply('Your Slack account is not linked yet. Run `/learn link EMP0001 Your Full Name` first.');\nconst base={employee_id:e.emp_id,employee_name:e.emp_name,source:'slack'};\nlet api;\nif(S.cmd==='status')api={action:'status',...base};\nelse if(S.cmd==='done'||S.cmd==='undo'){const ids=S.args.filter(a=>/^[A-Za-z]+\\d+$/.test(a));\n  if(!ids.length)return reply('Tell me which content: `/learn '+S.cmd+' C0003` (IDs are listed in `/learn status`).');\n  api={action:'progress',...base,updates:ids.map(id=>({content_id:id,done:S.cmd==='done'}))};}\nelse if(S.cmd==='feedback'){const n=parseInt(S.args[0]);const has=n>=1&&n<=5;\n  api={action:'feedback',...base,rating:has?n:null,comment:(has?S.args.slice(1):S.args).join(' ')};\n  if(!has&&!api.comment)return reply('Usage: `/learn feedback 4 the labs are great`');}\nreturn [{json:{route:0,response_url:S.response_url,cmd:S.cmd,api_url:S.cfg.INTERNAL_URL,api_body:api}}];\n"
+      },
+      "name": "Slack Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        2560
+      ],
+      "id": "8dc13c11-a8a0-48b5-a2b3-d5ed0c3db3bb"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ $json.route }}"
+      },
+      "name": "Slack Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1392,
+        2560
+      ],
+      "id": "1914b1a1-7aa4-4c4b-80c9-bef58889a796"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.api_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.api_body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Call Learning API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        2400
+      ],
+      "id": "aec8ca45-47e1-4d6a-89d4-b5f751ec3fcf",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const R=$('Slack Route').first().json,d=$input.first().json||{},S=$('Parse Slack Request').first().json;\nconst bar=x=>{const n=Math.round((x||0)/10);return '█'.repeat(n)+'░'.repeat(10-n)+' '+(x||0)+'%';};\nconst out=(text,blocks)=>[{json:{response_url:R.response_url,reply:{response_type:'ephemeral',replace_original:false,text,...(blocks?{blocks}:{})}}}];\nif(d.status==='error'||d.error)return out('❌ '+(d.message||(d.error&&d.error.message)||'Something went wrong.'));\nif(R.cmd==='feedback')return out('🙏 '+d.message);\nif(!d.has_path)return out('You have no learning path yet. Complete the assessment in the app: '+S.cfg.APP_URL);\nconst p=d.path,b=d.badges||{};\nconst badgeLine=[['bronze','🥉'],['silver','🥈'],['gold','🥇'],['certificate','🎓']].map(([k,e])=>b[k]?e:'▫️').join(' ');\nconst next=(p.next_items||[]).map(i=>'• `'+i.content_id+'` '+(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no)+': <'+i.url+'|'+i.topic+'> ('+i.format+', '+i.hours+'h)').join('\\n')||'_Nothing left - well done!_';\nconst blocks=[];\nif(d.new_awards&&d.new_awards.length)blocks.push({type:'section',text:{type:'mrkdwn',text:'🎉 *'+d.message+'*'}});\nblocks.push({type:'section',text:{type:'mrkdwn',text:'*'+p.target_skill+'* - week '+p.current_week+' of 13\\n`'+bar(p.progress_pct)+'`\\n'+p.items_completed+'/'+p.items_total+' items · '+p.completed_hours+'/'+p.total_hours+' h · '+(p.on_track?'✅ on track':'⏰ behind plan (expected '+p.expected_pct+'%)')}},\n  {type:'section',text:{type:'mrkdwn',text:'*Badges:* '+badgeLine}},\n  {type:'section',text:{type:'mrkdwn',text:'*Next up*\\n'+next}});\nif(d.certificate)blocks.push({type:'context',elements:[{type:'mrkdwn',text:'🎓 Certificate `'+d.certificate.cert_id+'` - download it in the app: '+S.cfg.APP_URL}]});\nreturn out((d.message||'Progress')+' - '+p.progress_pct+'%',blocks);\n"
+      },
+      "name": "Format Slack Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1824,
+        2400
+      ],
+      "id": "ab4d6251-3f4e-440e-b2c8-8874db62db32"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE employees SET slack_user_id = $2::text\nWHERE UPPER(emp_id) = UPPER(TRIM($1::text))\nRETURNING UPPER(emp_id) AS emp_id, emp_name;",
+        "options": {
+          "queryReplacement": "={{ [ $json.emp_id, $json.slack_user_id ] }}"
+        }
+      },
+      "name": "Link Slack Account",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1600,
+        2608
+      ],
+      "id": "84d9e4d3-19d7-4679-a481-600a3cf69141",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const R=$('Slack Route').first().json,u=$input.first().json||{};\nreturn [{json:{response_url:R.response_url,reply:{response_type:'ephemeral',replace_original:false,\n  text:u.emp_id?'✅ Linked to '+u.emp_name+' ('+u.emp_id+'). You will get weekly check-ins here. Try `/learn status`.':'❌ Could not link your account.'}}}];\n"
+      },
+      "name": "Format Link Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1824,
+        2608
+      ],
+      "id": "03cd5566-9204-4ab5-a616-75d8e7087594"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.response_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.reply) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Reply to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2048,
+        2560
+      ],
+      "id": "82841342-9434-4ac8-ab03-d291d6a74528",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1,
+                6
+              ],
+              "triggerAtHour": 16,
+              "triggerAtMinute": 50
+            }
+          ]
+        }
+      },
+      "name": "Weekly Check-in (Mon 9:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        64,
+        2960
+      ],
+      "id": "b8543bba-c9a3-4b9b-982b-c9c7bc3835c2"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT p.path_id, p.emp_id, e.emp_name, e.slack_user_id, p.status, p.version, p.target_skill, p.career_goal, p.weekly_hours, p.created_at,\n  COALESCE((SELECT json_agg(i ORDER BY i.week_no, i.seq) FROM path_items i WHERE i.path_id = p.path_id), '[]'::json) AS items,\n  COALESCE((SELECT json_agg(a) FROM awards a WHERE a.path_id = p.path_id), '[]'::json) AS awards\nFROM learning_paths p\nJOIN employees e ON UPPER(e.emp_id) = p.emp_id\nWHERE p.status = 'active' AND COALESCE(e.slack_user_id, '') <> '';",
+        "options": {}
+      },
+      "name": "Get Active Learners",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        288,
+        2960
+      ],
+      "id": "1f3f5e44-265e-416d-bb84-175259fc3077",
+      "credentials": {
+        "postgres": {
+          "id": "7JOf9VudKYn3dXRq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------- shared helpers (identical copy in every node that needs them) ----------\nconst LEVEL_RANK=l=>{l=String(l||'').toLowerCase();return /adv|expert|master|proficient/.test(l)?3:/inter/.test(l)?2:1;};\nconst LEVEL_NAME={1:'Beginner',2:'Intermediate',3:'Advanced'};\nconst BADGES=[{key:'bronze',at:0.25,label:'Bronze badge',emoji:'🥉'},{key:'silver',at:0.5,label:'Silver badge',emoji:'🥈'},{key:'gold',at:0.75,label:'Gold badge',emoji:'🥇'},{key:'certificate',at:1,label:'Certificate of completion',emoji:'🎓'}];\nconst r1=x=>Math.round((Number(x)||0)*10)/10;\nfunction summarize(state,emp){\n  state=state||{};const p=state.path||null;\n  const awards=(Array.isArray(state.awards)?state.awards:[]).map(a=>({award:a.award,cert_id:a.cert_id||null,awarded_at:a.awarded_at||null}));\n  const badges={};for(const b of BADGES)badges[b.key]=awards.some(a=>a.award===b.key);\n  if(!p||!p.path_id)return{has_path:false,employee:emp,path:null,awards:[],badges,certificate:null};\n  const items=(Array.isArray(state.items)?state.items:[]).map(i=>({content_id:i.content_id,week_no:parseInt(i.week_no)||0,end_week:parseInt(i.end_week??i.week_no)||0,seq:parseInt(i.seq)||0,skill:i.skill,topic:i.topic,level:i.level,format:i.format,hours:parseFloat(i.hours)||0,provider:i.provider,cost:i.cost,url:i.url,rationale:i.rationale||'',status:i.status||'pending',completed_at:i.completed_at||null,done:i.status==='completed'}));\n  items.sort((a,b)=>a.week_no-b.week_no||a.seq-b.seq);\n  const total=items.reduce((s,i)=>s+i.hours,0),doneH=items.filter(i=>i.done).reduce((s,i)=>s+i.hours,0),doneN=items.filter(i=>i.done).length;\n  const ratio=total>0?doneH/total:(items.length?doneN/items.length:0);\n  const all_done=items.length>0&&doneN===items.length;\n  const start=new Date(p.created_at||Date.now()).getTime();\n  const current_week=Math.min(13,Math.max(1,Math.floor((Date.now()-start)/604800000)+1));\n  const expectedH=items.filter(i=>i.end_week<current_week).reduce((s,i)=>s+i.hours,0);\n  const expected=total>0?expectedH/total:0;\n  const c=awards.find(a=>a.award==='certificate');\n  return{has_path:true,employee:emp,\n    path:{path_id:String(p.path_id),status:p.status,version:parseInt(p.version)||1,target_skill:p.target_skill,career_goal:p.career_goal,current_skill:p.current_skill,\n      learning_style:p.learning_style,target_proficiency:p.target_proficiency,experience_years:p.experience_years==null?null:parseFloat(p.experience_years),experience_band:p.experience_band,\n      weekly_hours:parseFloat(p.weekly_hours)||null,summary:p.summary||'',skill_gap_analysis:p.skill_gap_analysis||'',coverage_note:p.coverage_note||'',personalization_notes:p.personalization_notes||'',\n      created_at:p.created_at,completed_at:p.completed_at||null,current_week,total_hours:r1(total),completed_hours:r1(doneH),items_total:items.length,items_completed:doneN,\n      progress_ratio:ratio,progress_pct:all_done?100:Math.min(99.9,r1(ratio*100)),expected_pct:r1(expected*100),on_track:all_done||ratio+0.1>=expected,all_done,\n      items,next_items:items.filter(i=>!i.done).slice(0,3)},\n    awards,badges,\n    certificate:c?{cert_id:c.cert_id,awarded_at:c.awarded_at,employee_name:emp&&emp.name,employee_id:emp&&emp.id,target_skill:p.target_skill,total_hours:r1(total),items:items.length}:null};\n}\nfunction parseCSV(t){t=(t||'').replace(/^\\uFEFF/,'');const rows=[];let r=[],v='',q=false;\n for(let i=0;i<t.length;i++){const ch=t[i];\n  if(q){if(ch==='\"'){if(t[i+1]==='\"'){v+='\"';i++;}else q=false;}else v+=ch;}\n  else if(ch==='\"')q=true;else if(ch===','){r.push(v);v='';}\n  else if(ch==='\\n'||ch==='\\r'){if(ch==='\\r'&&t[i+1]==='\\n')i++;r.push(v);v='';rows.push(r);r=[];}\n  else v+=ch;}\n if(v!==''||r.length){r.push(v);rows.push(r);}\n const h=(rows.shift()||[]).map(x=>x.trim());\n return rows.filter(x=>x.length>1).map(x=>Object.fromEntries(h.map((k,i)=>[k,(x[i]||'').trim()])));}\nfunction catalogRow(r){return{content_id:String(r.content_id||'').trim().toUpperCase(),skill:r.skill||'',topic:r.content_topic||r.topic||'',level:r.difficulty_label||r.level||'',level_rank:LEVEL_RANK(r.difficulty_label||r.level),format:r.format||'',hours:parseFloat(r.duration_hrs||r.hours)||0,provider:r.provider||'',cost:r.cost||'',url:r.content_url||r.url||'',prereqs:(r.prerequisite_content_ids||'').split(/[;,|\\s]+/).filter(Boolean).map(x=>x.toUpperCase())};}\nconst wk=i=>i.week_no===0?'done earlier':(i.end_week>i.week_no?'W'+i.week_no+'-'+i.end_week:'W'+i.week_no);\nconst empOf=db=>({id:db.employee_id,name:db.full_name,role:db.role,department:db.department,slack_user_id:db.slack_user_id||null});\n// ---------- end shared helpers ----------\nconst out=[];\nfor(const it of $input.all()){const row=it.json;if(!row.path_id||!row.slack_user_id)continue;\n  const s=summarize({path:row,items:row.items,awards:row.awards},{id:row.emp_id,name:row.emp_name,slack_user_id:row.slack_user_id}),p=s.path;\n  const bar=x=>{const n=Math.round(x/10);return '█'.repeat(n)+'░'.repeat(10-n)+' '+x+'%';};\n  const pending=p.items.filter(i=>!i.done),due=pending.filter(i=>i.week_no<=p.current_week);\n  const show=(due.length?due:pending).slice(0,5);\n  const blocks=[{type:'header',text:{type:'plain_text',text:'📚 Weekly check-in · week '+p.current_week+' of 13'}},\n    {type:'section',text:{type:'mrkdwn',text:'Hi '+String(row.emp_name).split(' ')[0]+'! *'+p.target_skill+'*\\n`'+bar(p.progress_pct)+'`  '+(p.on_track?'✅ on track':'⏰ a little behind (plan expects '+p.expected_pct+'%)')}}];\n  if(show.length){blocks.push({type:'section',text:{type:'mrkdwn',text:'*'+(due.length?'Due now':'Coming up')+'* - tap when finished:'}});\n    for(const i of show)blocks.push({type:'section',text:{type:'mrkdwn',text:'`'+i.content_id+'` '+wk(i)+' · <'+i.url+'|'+i.topic+'>\\n'+i.format+' · '+i.hours+'h · '+i.provider},\n      accessory:{type:'button',text:{type:'plain_text',text:'✅ Done'},style:'primary',value:'done:'+i.content_id,action_id:'done_'+i.content_id}});}\n  blocks.push({type:'divider'},{type:'section',text:{type:'mrkdwn',text:'*How is it going this week?*'}},\n    {type:'actions',elements:[['😀 Going well',5,'Going well'],['😐 It is OK',3,'It is OK'],['😣 Struggling',1,'Struggling, too hard or too fast']].map(([t,n,c],k)=>({type:'button',text:{type:'plain_text',text:t},value:'feedback:'+n+':'+c,action_id:'fb_'+k}))},\n    {type:'context',elements:[{type:'mrkdwn',text:'Badges: '+(s.badges.bronze?'🥉':'▫️')+(s.badges.silver?'🥈':'▫️')+(s.badges.gold?'🥇':'▫️')+(s.badges.certificate?'🎓':'▫️')+' · `/learn status` anytime'}]});\n  out.push({json:{channel:row.slack_user_id,text:'Weekly learning check-in: '+p.progress_pct+'% of '+p.target_skill,blocks}});}\nreturn out;\n"
+      },
+      "name": "Build Weekly Check-ins",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        2960
+      ],
+      "id": "4d2905a1-a202-407f-af78-41ff98928174"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.channel, text: $json.text, blocks: $json.blocks, unfurl_links: false }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1100
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Send Check-in",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        2960
+      ],
+      "id": "c2c24c02-cdfe-4f3d-8665-a54f857b4ade",
+      "credentials": {
+        "slackApi": {
+          "id": "asrh7BzewphjvQtP",
+          "name": "Slack account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Setup\n1. Run `schema.sql` in Postgres.\n2. Pinecone index: dimension **1536**, metric **cosine**. Paste its host into **Normalize Request** (CONFIG).\n3. Credentials: Postgres, OpenAI, *Header Auth* for Pinecone (`Api-Key: <key>`) on the 6 Pinecone nodes, *Slack API* (bot token) on the 3 Slack post nodes.\n4. Slack app: slash command `/learn` + Interactivity → `<n8n>/webhook/slack-learning`. Scopes: `chat:write`, `commands`, `im:write`. Edit **Parse Slack Request** (CONFIG).\n5. App ➜ Admin tab ➜ *Sync content library* (embeds the CSV into Pinecone).",
+        "height": 380,
+        "width": 620,
+        "color": 4
+      },
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dce98518-631f-4057-b03d-d91d8e4dda69"
+    },
+    {
+      "parameters": {
+        "content": "## Actions on /webhook/employee-assessment\n`assess` · `status` · `progress` · `feedback` · `verify_certificate` · `ingest_library`\n\nAssess: verify → existing-path check (keep / update / replace) → RAG retrieval (Pinecone) → experience-aware prompt → plan with prereq + hour-budget scheduler → Postgres + Pinecone → Slack.\n\nProgress: update → badges at 25/50/75 % → certificate at 100 % → app + Slack.",
+        "height": 380,
+        "width": 620,
+        "color": 5
+      },
+      "name": "Flows",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "5949e912-c179-403b-a75d-566ee44d98ec"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Request": {
+      "main": [
+        [
+          {
+            "node": "Route Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Request": {
+      "main": [
+        [
+          {
+            "node": "Build Library Batches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lookup Certificate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verify Employee",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Bad Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Library Batches": {
+      "main": [
+        [
+          {
+            "node": "Embed Library Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Library Batch": {
+      "main": [
+        [
+          {
+            "node": "Build Library Upserts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Library Upserts": {
+      "main": [
+        [
+          {
+            "node": "Pinecone Upsert Library",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pinecone Upsert Library": {
+      "main": [
+        [
+          {
+            "node": "Summarize Ingest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Ingest": {
+      "main": [
+        [
+          {
+            "node": "Respond - Ingest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Certificate": {
+      "main": [
+        [
+          {
+            "node": "Respond - Certificate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Employee": {
+      "main": [
+        [
+          {
+            "node": "Is Verified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Verified?": {
+      "main": [
+        [
+          {
+            "node": "Load Learner State",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Not Verified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Learner State": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Assess Gate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Progress",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Gate": {
+      "main": [
+        [
+          {
+            "node": "Existing Path?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Existing Path?": {
+      "main": [
+        [
+          {
+            "node": "Respond - Existing Path",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Retrieval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Retrieval": {
+      "main": [
+        [
+          {
+            "node": "Embed Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Query": {
+      "main": [
+        [
+          {
+            "node": "Query Content (Pinecone)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Content (Pinecone)": {
+      "main": [
+        [
+          {
+            "node": "Query Similar Paths (Pinecone)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Similar Paths (Pinecone)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Context": {
+      "main": [
+        [
+          {
+            "node": "Call OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Build Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Plan": {
+      "main": [
+        [
+          {
+            "node": "Has Plan Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Plan Items?": {
+      "main": [
+        [
+          {
+            "node": "Archive Old Path",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - No Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive Old Path": {
+      "main": [
+        [
+          {
+            "node": "Insert Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Path": {
+      "main": [
+        [
+          {
+            "node": "Prepare Employee Docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Employee Docs": {
+      "main": [
+        [
+          {
+            "node": "Respond - Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond - Plan": {
+      "main": [
+        [
+          {
+            "node": "Embed Employee Docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Employee Docs": {
+      "main": [
+        [
+          {
+            "node": "Build Pinecone Upserts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Pinecone Upserts": {
+      "main": [
+        [
+          {
+            "node": "Pinecone Upsert Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pinecone Upsert Employee": {
+      "main": [
+        [
+          {
+            "node": "Slack New Path Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack New Path Message": {
+      "main": [
+        [
+          {
+            "node": "Slack Post New Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Status": {
+      "main": [
+        [
+          {
+            "node": "Respond - Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Progress": {
+      "main": [
+        [
+          {
+            "node": "Reload Learner State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reload Learner State": {
+      "main": [
+        [
+          {
+            "node": "Compute Awards",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Awards": {
+      "main": [
+        [
+          {
+            "node": "Has Active Path?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Active Path?": {
+      "main": [
+        [
+          {
+            "node": "Save Awards",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - No Active Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Awards": {
+      "main": [
+        [
+          {
+            "node": "Build Progress Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Progress Response": {
+      "main": [
+        [
+          {
+            "node": "Respond - Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond - Progress": {
+      "main": [
+        [
+          {
+            "node": "Pinecone Update Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pinecone Update Progress": {
+      "main": [
+        [
+          {
+            "node": "Award Slack Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Award Slack Messages": {
+      "main": [
+        [
+          {
+            "node": "Slack Post Award",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Feedback": {
+      "main": [
+        [
+          {
+            "node": "Build Feedback Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Feedback Response": {
+      "main": [
+        [
+          {
+            "node": "Respond - Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond - Feedback": {
+      "main": [
+        [
+          {
+            "node": "Embed Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Feedback": {
+      "main": [
+        [
+          {
+            "node": "Build Feedback Vector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Feedback Vector": {
+      "main": [
+        [
+          {
+            "node": "Pinecone Upsert Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Slack Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Slack Request": {
+      "main": [
+        [
+          {
+            "node": "Valid Slack Request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Slack Request?": {
+      "main": [
+        [
+          {
+            "node": "Ack Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Slack Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ack Slack": {
+      "main": [
+        [
+          {
+            "node": "Lookup Slack Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Slack Employee": {
+      "main": [
+        [
+          {
+            "node": "Slack Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Route": {
+      "main": [
+        [
+          {
+            "node": "Slack Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Action": {
+      "main": [
+        [
+          {
+            "node": "Call Learning API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Link Slack Account",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Learning API": {
+      "main": [
+        [
+          {
+            "node": "Format Slack Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link Slack Account": {
+      "main": [
+        [
+          {
+            "node": "Format Link Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Slack Reply": {
+      "main": [
+        [
+          {
+            "node": "Reply to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Link Reply": {
+      "main": [
+        [
+          {
+            "node": "Reply to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Check-in (Mon 9:00)": {
+      "main": [
+        [
+          {
+            "node": "Get Active Learners",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Learners": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Check-ins",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Check-ins": {
+      "main": [
+        [
+          {
+            "node": "Send Check-in",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "31ffc8b5-6d99-4ad9-88c2-4f209c5e19b4",
+  "meta": {
+    "instanceId": "5e0ea2579fab1e8e45b7b91091d5b0fdec4e09343c4018d8b51e49d59adcfe30"
+  },
+  "nodeGroups": [],
+  "id": "mzccn2N9pmvcFk37",
+  "tags": []
+}
