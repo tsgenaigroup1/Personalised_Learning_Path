@@ -1,0 +1,34 @@
+display_information:
+  name: Learning Coach
+  description: Tracks your personalised learning path, badges and certificate
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+    agent_tasks_enabled: true
+  bot_user:
+    display_name: Learning Coach
+    always_online: true
+  slash_commands:
+    - command: /learn
+      url: https://super-fortnight-6v5wjw79p5q4hprr-5678.app.github.dev/webhook/slack-learning
+      description: Track your learning path
+      usage_hint: link EMP0001 Your Name | status | done C0003 | feedback 4 great
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - commands
+      - im:write
+  pkce_enabled: false
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://super-fortnight-6v5wjw79p5q4hprr-5678.app.github.dev/webhook/slack-learning
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
+  app_level_token_rotation_enabled: false
+  is_mcp_enabled: false
