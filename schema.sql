@@ -2,6 +2,20 @@
 -- Postgres = transactional source of truth (paths, progress, badges, certificates, feedback).
 -- Pinecone = RAG layer (content library + assessments, paths, progress and feedback as embeddings).
 
+CREATE DATABASE emp_training;
+
+CREATE TABLE employees (
+    emp_id VARCHAR(50) PRIMARY KEY,
+    emp_name VARCHAR(100),
+    emp_dept VARCHAR(100),
+    emp_role VARCHAR(100),
+    manager_input TEXT,
+    last_review_date DATE,
+    years_of_exp NUMERIC(5, 2),
+    current_domain VARCHAR(150),
+    Rating VARCHAR(50)
+);
+
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS slack_user_id text;
 CREATE UNIQUE INDEX IF NOT EXISTS employees_slack_user_id_uq ON employees (slack_user_id) WHERE slack_user_id IS NOT NULL;
 
