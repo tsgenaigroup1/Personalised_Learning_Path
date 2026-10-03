@@ -387,7 +387,10 @@ CSS = """
 """
 
 HERO = """<div class="sp-hero"><h1>🧭 SkillPath · Personalised Learning</h1>
-<p>Answer a short assessment, get a 90-day plan built from our content library, track progress and earn badges.</p>
+# <p>Answer a short assessment, get a 90-day plan built from our content library, track progress and earn badges.</p>
+<p style="color:#FCD34D !important; font-size:18px !important; font-weight:500 !important; margin-top:6px !important;">
+Answer a short assessment, get a 90-day plan built from our content library, track progress and earn badges.
+</p>
 <div class="sp-steps"><span>1 · Assess</span><span>2 · Get your plan</span><span>3 · Learn & tick off</span>
 <span>🥉 25% · 🥈 50% · 🥇 75% · 🎓 100%</span><span>💬 Slack: /learn status</span></div></div>"""
 
