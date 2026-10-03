@@ -386,13 +386,32 @@ CSS = """
 @media (max-width:700px){.sp-stats,.sp-badges{grid-template-columns:repeat(2,1fr)}}
 """
 
-HERO = """<div class="sp-hero"><h1>🧭 SkillPath · Personalised Learning</h1>
+# HERO = """<div class="sp-hero"><h1>🧭 SkillPath · Personalised Learning</h1>
 # <p>Answer a short assessment, get a 90-day plan built from our content library, track progress and earn badges.</p>
-<p style="color:#FCD34D !important; font-size:18px !important; font-weight:500 !important; margin-top:6px !important;">
+# <div class="sp-steps"><span>1 · Assess</span><span>2 · Get your plan</span><span>3 · Learn & tick off</span>
+# <span>🥉 25% · 🥈 50% · 🥇 75% · 🎓 100%</span><span>💬 Slack: /learn status</span></div></div>"""
+
+HERO = """<div class="sp-hero"><h1>🧭 SkillPath · Personalised Learning</h1>
+<p style="color:#ffffff !important; font-size:18px !important; font-weight:500 !important; margin-top:6px !important;">
 Answer a short assessment, get a 90-day plan built from our content library, track progress and earn badges.
 </p>
-<div class="sp-steps"><span>1 · Assess</span><span>2 · Get your plan</span><span>3 · Learn & tick off</span>
-<span>🥉 25% · 🥈 50% · 🥇 75% · 🎓 100%</span><span>💬 Slack: /learn status</span></div></div>"""
+<div class="sp-steps">
+<span style="background:#ffffff !important; color:#312e81 !important; font-weight:700 !important;">
+1 · Assess
+</span>
+<span style="background:#ffffff !important; color:#312e81 !important; font-weight:700 !important;">
+2 · Get your plan
+</span>
+<span style="background:#ffffff !important; color:#312e81 !important; font-weight:700 !important;">
+3 · Learn & tick off
+</span>
+<span style="color:#ffffff !important; font-weight:600 !important;">
+🥉 25% · 🥈 50% · 🥇 75% · 🎓 100%
+</span>
+<span style="background:rgba(255,255,255,.90) !important; color:#312e81 !important; font-weight:700 !important;">
+💬 Slack: /learn status
+</span>
+</div></div>"""
 
 
 def build_ui():
