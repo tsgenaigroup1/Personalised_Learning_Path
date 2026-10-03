@@ -31,7 +31,7 @@ WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "http://localhost:5678/webhook/employ
 PROPOSAL = os.getenv("PROPOSAL_PDF", str(HERE / "Capstone_Project_Proposal_Group1-Personalized_Learning_Path_Generator.pdf"))
 EMPLOYEES = os.getenv("EMPLOYEE_CSV", str(HERE / "employee_data.csv"))
 CONTENT = os.getenv("CONTENT_CSV", str(HERE / "content_library.csv"))
-ADMIN_KEY = os.getenv("ADMIN_KEY", "")
+ADMIN_KEY = os.getenv("ADMIN_KEY", "odie8SqhbXF22xVtoy1EaDL6KZFTGJmpHpq3NRp050A")
 TIMEOUT = 240
 
 STYLES = ["Visual (videos, infographics)", "Hands-on (labs, projects)", "Reading (articles, docs, books)",
