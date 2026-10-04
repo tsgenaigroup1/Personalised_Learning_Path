@@ -1,5 +1,4 @@
-<img width="1539" height="91" alt="image" src="https://github.com/user-attachments/assets/921acc4d-e53f-4a8f-825e-2040003f5649" /># Personalised_Learning_Path
-Personalised_Learning_Path
+
 
 API_KEY=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
 
