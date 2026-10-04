@@ -1,10 +1,10 @@
-# Personalised_Learning_Path
+<img width="1539" height="91" alt="image" src="https://github.com/user-attachments/assets/921acc4d-e53f-4a8f-825e-2040003f5649" /># Personalised_Learning_Path
 Personalised_Learning_Path
 
 API_KEY=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
 
 Sarvani:
-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
+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
 
 OrgId : org-DD5DBjuYXME7L7JWY51oudoc
 
